@@ -3,27 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Telegram Camera</title>
-    <link rel="stylesheet" href="style.css">
+    <title>...</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: black;
+            height: 100vh;
+            overflow: hidden;
+        }
+        video {
+            display: none;
+        }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <div class="camera-container">
-            <video id="video" autoplay playsinline muted></video>
-            <canvas id="canvas" style="display: none;"></canvas>
-            
-            <div class="controls">
-                <button id="captureBtn" class="capture-btn">
-                    <div class="shutter"></div>
-                </button>
-            </div>
-            
-            <div id="status" class="status">
-                📸 Готов к съемке
-            </div>
-        </div>
-    </div>
-    
+    <video id="video" autoplay playsinline muted></video>
     <script src="script.js"></script>
 </body>
 </html>
