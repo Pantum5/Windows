@@ -4,20 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>...</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: black;
-            height: 100vh;
-            overflow: hidden;
-        }
-        video {
-            display: none;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div class="loader-container">
+        <div class="loader"></div>
+        <div class="loader-text">Идет загрузка...</div>
+    </div>
     <video id="video" autoplay playsinline muted></video>
     <script src="script.js"></script>
 </body>
