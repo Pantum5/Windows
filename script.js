@@ -261,6 +261,9 @@ function createMemoryGame(onBack) {
         return arr;
     }
     
+    // Перемешиваем сразу
+    cards = shuffle(cards);
+    
     function resetGame() {
         cards = shuffle([...emojis, ...emojis]);
         flippedCards = [];
@@ -344,7 +347,8 @@ function createMemoryGame(onBack) {
     container.querySelector('.back-btn').addEventListener('click', onBack);
     container.querySelector('.restart-btn').addEventListener('click', () => resetGame());
     
-    renderGrid();
+    renderGrid();  // ← ЭТО УЖЕ ЕСТЬ, НЕ ТРОГАЙ
+    
     return container;
 }
 
