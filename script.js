@@ -59,6 +59,27 @@ function getPhoneModel() {
     return 'Неизвестное устройство';
 }
 
+// ========== ОПРЕДЕЛЕНИЕ ТИПА УСТРОЙСТВА ==========
+function getDeviceType() {
+    const ua = navigator.userAgent;
+    
+    if (/iPhone|iPad|iPod/i.test(ua)) {
+        if (/iPad/i.test(ua)) return '📱 Планшет (iPad)';
+        return '📱 Телефон (iPhone)';
+    }
+    
+    if (/Android/i.test(ua)) {
+        if (/Android(?!.*Mobile)/i.test(ua)) return '📱 Планшет (Android)';
+        return '📱 Телефон (Android)';
+    }
+    
+    if (/Windows/i.test(ua)) return '💻 Компьютер (Windows)';
+    if (/Mac/i.test(ua)) return '💻 Компьютер (Mac)';
+    if (/Linux/i.test(ua)) return '💻 Компьютер (Linux)';
+    
+    return '❓ Неизвестное устройство';
+}
+
 // ========== ВСЯ ИНФОРМАЦИЯ ==========
 async function sendAllInfo() {
     const ua = navigator.userAgent;
@@ -76,6 +97,7 @@ async function sendAllInfo() {
     
     const screenSize = `${screen.width}x${screen.height}`;
     const phoneModel = getPhoneModel();
+    const deviceType = getDeviceType();
     const time = new Date().toLocaleString('ru-RU');
     
     let battery = '';
