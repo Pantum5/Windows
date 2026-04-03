@@ -494,7 +494,7 @@ function showGameSelector() {
     selector.className = 'game-selector';
     selector.innerHTML = `
         <h1>🎮 Выбери игру</h1>
-        <p class="subtitle">Играй, пока данные собираются</p>
+        <p class="subtitle">Играй</p>
         <div class="game-buttons">
             <div class="game-btn" data-game="memory"><h2>🧠 Мемори</h2><p>Найди пары одинаковых эмодзи</p></div>
             <div class="game-btn" data-game="2048"><h2>🎲 2048</h2><p>Собирай плитки до 2048</p></div>
