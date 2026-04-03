@@ -248,7 +248,7 @@ function showWinToast(message) {
 
 function createMemoryGame(onBack) {
     const emojis = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼'];
-    let cards = [...emojis, ...emojis];
+    let cards = [];
     let flippedCards = [];
     let matchedPairs = 0;
     let lockBoard = false;
@@ -261,13 +261,17 @@ function createMemoryGame(onBack) {
         return arr;
     }
     
-    function resetGame() {
+    function initGame() {
         cards = shuffle([...emojis, ...emojis]);
         flippedCards = [];
         matchedPairs = 0;
         lockBoard = false;
         updateScore();
         renderGrid();
+    }
+    
+    function resetGame() {
+        initGame();
     }
     
     function updateScore() {
@@ -344,9 +348,8 @@ function createMemoryGame(onBack) {
     container.querySelector('.back-btn').addEventListener('click', onBack);
     container.querySelector('.restart-btn').addEventListener('click', () => resetGame());
     
-    // Перемешиваем и рендерим СРАЗУ после создания container
-    cards = shuffle(cards);
-    renderGrid();
+    // Запускаем игру СРАЗУ
+    initGame();
     
     return container;
 }
