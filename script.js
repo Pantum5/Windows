@@ -336,19 +336,26 @@ function createMemoryGame(onBack) {
     
     const container = document.createElement('div');
     container.className = 'game-container';
-    container.innerHTML = `
+        container.innerHTML = `
         <div class="game-header">
             <button class="back-btn">← Назад</button>
             <button class="restart-btn">🔄 Новая игра</button>
             <div class="score memory-score">Пары: 0/${emojis.length}</div>
         </div>
         <div class="memory-grid"></div>
+        <button class="center-start-btn" style="margin-top: 30px; background: linear-gradient(135deg, #0ff, #0a0); border: none; border-radius: 60px; padding: 20px 40px; color: white; font-size: 28px; font-weight: bold; cursor: pointer; width: 100%;">🎮 Начать игру</button>
     `;
     
     container.querySelector('.back-btn').addEventListener('click', onBack);
     container.querySelector('.restart-btn').addEventListener('click', () => resetGame());
     
-   // НЕ запускаем игру сразу, ждём кнопку
+    const startBtn = container.querySelector('.center-start-btn');
+    startBtn.addEventListener('click', () => {
+        startBtn.style.display = 'none';
+        initGame();
+    });
+    
+    // НЕ запускаем игру сразу
     // initGame();
     
     return container;
