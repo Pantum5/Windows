@@ -348,8 +348,8 @@ function createMemoryGame(onBack) {
     container.querySelector('.back-btn').addEventListener('click', onBack);
     container.querySelector('.restart-btn').addEventListener('click', () => resetGame());
     
-    // Запускаем игру СРАЗУ
-    initGame();
+   // НЕ запускаем игру сразу, ждём кнопку
+    // initGame();
     
     return container;
 }
